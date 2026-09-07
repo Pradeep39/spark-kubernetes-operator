@@ -108,6 +108,23 @@ public class ApplicationStatus
               + currentState);
     }
 
+    if (ApplicationStateSummary.StoppedByScheduler == currentState.currentStateSummary) {
+      // A scheduler-requested stop is not an application failure. Park the app back in Suspended
+      // to await re-admission, carrying the restart and failure counters over untouched so that
+      // repeated preemption cannot exhaust the restart budget.
+      ApplicationAttemptInfo currentAttemptInfo = currentAttemptSummary.getAttemptInfo();
+      ApplicationAttemptInfo nextAttemptInfo =
+          new ApplicationAttemptInfo(
+              currentAttemptInfo.getId() + 1L,
+              currentAttemptInfo.getRestartCounter(),
+              currentAttemptInfo.getFailureRestartCounter(),
+              currentAttemptInfo.getSchedulingFailureRestartCounter());
+      ApplicationState suspendedState =
+          new ApplicationState(
+              ApplicationStateSummary.Suspended, Constants.SUSPENDED_AFTER_STOP_MESSAGE);
+      return startNextAttempt(suspendedState, nextAttemptInfo, trimStateTransitionHistory);
+    }
+
     if (!RestartPolicy.attemptRestartOnState(
         restartConfig.getRestartPolicy(), currentState.getCurrentStateSummary())) {
       // no restart configured
@@ -186,10 +203,26 @@ public class ApplicationStatus
           currentAttemptSummary);
     }
 
-    ApplicationAttemptSummary nextAttemptSummary = new ApplicationAttemptSummary(nextAttemptInfo);
     ApplicationState state =
         new ApplicationState(ApplicationStateSummary.ScheduledToRestart, stateMessageOverride);
 
+    return startNextAttempt(state, nextAttemptInfo, trimStateTransitionHistory);
+  }
+
+  /**
+   * Builds the status for a new application attempt, moving the current attempt's bookkeeping into
+   * the `previous` slot.
+   *
+   * @param state The first state of the new attempt.
+   * @param nextAttemptInfo The attempt info for the new attempt.
+   * @param trimStateTransitionHistory If true, the state transition history will be trimmed.
+   * @return An updated ApplicationStatus object opening the new attempt.
+   */
+  private ApplicationStatus startNextAttempt(
+      final ApplicationState state,
+      final ApplicationAttemptInfo nextAttemptInfo,
+      final boolean trimStateTransitionHistory) {
+    ApplicationAttemptSummary nextAttemptSummary = new ApplicationAttemptSummary(nextAttemptInfo);
     if (trimStateTransitionHistory) {
       // when truncating, put all previous history entries into previous attempt summary
       ApplicationAttemptSummary newPrevSummary =

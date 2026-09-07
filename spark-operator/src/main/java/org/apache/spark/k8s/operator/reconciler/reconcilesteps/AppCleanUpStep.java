@@ -324,12 +324,19 @@ public final class AppCleanUpStep extends AppReconcileStep {
    * Determines whether to retain or release resources based on the resource retention policy and
    * current application state.
    *
+   * <p>A scheduler-requested stop always releases resources, whatever the retention policy: the
+   * application is expected to be admitted again, and a retained driver would block the next
+   * attempt.
+   *
    * @param resourceRetainPolicy The ResourceRetainPolicy configured for the application.
    * @param currentState The current ApplicationState.
    * @return True if resources should be retained, false if they should be released.
    */
   protected boolean retainReleaseResourceForPolicyAndState(
       ResourceRetainPolicy resourceRetainPolicy, ApplicationState currentState) {
+    if (ApplicationStateSummary.StoppedByScheduler == currentState.getCurrentStateSummary()) {
+      return false;
+    }
     return switch (resourceRetainPolicy) {
       case Always -> true;
       case Never -> false;

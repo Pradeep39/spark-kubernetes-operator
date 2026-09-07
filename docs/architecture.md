@@ -99,8 +99,12 @@ stateDiagram-v2
 
     Submitted --> DriverRequested
     Submitted --> SchedulingFailure
+    Submitted --> Suspended : spec.suspend
+
+    Suspended --> DriverRequested : spec.suspend cleared
 
     ScheduledToRestart --> DriverRequested
+    ScheduledToRestart --> Suspended : spec.suspend
 
     DriverRequested --> DriverStarted
     DriverRequested --> DriverStartTimedOut
@@ -142,6 +146,16 @@ stateDiagram-v2
         Failed
     }
 
+    %% spec.suspend set on an application that already has a driver
+    DriverRequested --> StoppedByScheduler : spec.suspend
+    DriverStarted --> StoppedByScheduler : spec.suspend
+    DriverReady --> StoppedByScheduler : spec.suspend
+    InitializedBelowThresholdExecutors --> StoppedByScheduler : spec.suspend
+    RunningHealthy --> StoppedByScheduler : spec.suspend
+    RunningWithPartialCapacity --> StoppedByScheduler : spec.suspend
+    RunningWithBelowThresholdExecutors --> StoppedByScheduler : spec.suspend
+    StoppedByScheduler --> Suspended : Driver Released
+
     Failures --> ScheduledToRestart : Retry Configured
     Failures --> ResourceReleased : Terminated
 
@@ -175,6 +189,11 @@ stateDiagram-v2
   * Please be advised that k8s resources would not be retained if the application is configured to
       restart. This is to avoid resource quota usage increase unexpectedly or resource conflicts
       among multiple attempts.
+* An external component may set `.spec.suspend` to hold an application in the `Suspended` state
+  before it starts, or to release the driver of a running one via `StoppedByScheduler`. A scheduler
+  requested stop is not a failure, so it neither triggers the retry policy nor advances the restart
+  counters, and the application returns to `Suspended` to wait for re-admission. See
+  [Suspend a SparkApplication](spark_custom_resources.md#suspend-a-sparkapplication).
 
 ## Cluster State Transition
 

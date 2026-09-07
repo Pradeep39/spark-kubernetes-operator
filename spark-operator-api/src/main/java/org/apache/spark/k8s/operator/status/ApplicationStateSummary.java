@@ -30,6 +30,12 @@ public enum ApplicationStateSummary implements BaseStateSummary {
   /** Spark application is submitted to the cluster but yet scheduled */
   Submitted,
 
+  /**
+   * Spark application is withheld from the cluster because {@code .spec.suspend} is set. The
+   * operator does not request a driver until an external scheduler clears the flag.
+   */
+  Suspended,
+
   /** Spark application will be restarted with same configuration */
   ScheduledToRestart,
 
@@ -71,6 +77,13 @@ public enum ApplicationStateSummary implements BaseStateSummary {
 
   /** The application has lost a fraction of executors for external reasons */
   RunningWithBelowThresholdExecutors,
+
+  /**
+   * An external scheduler set {@code .spec.suspend} on a running application, asking the operator
+   * to release the driver so that its resources can be reclaimed. This is not an application
+   * failure: the app goes back to {@link #Suspended} to await re-admission.
+   */
+  StoppedByScheduler,
 
   /** The request timed out for driver */
   DriverStartTimedOut,
@@ -126,10 +139,10 @@ public enum ApplicationStateSummary implements BaseStateSummary {
   /**
    * Checks if the application is in an initializing state.
    *
-   * @return True if the state is Submitted or ScheduledToRestart, false otherwise.
+   * @return True if the state is Submitted, Suspended or ScheduledToRestart, false otherwise.
    */
   public boolean isInitializing() {
-    return this == Submitted || this == ScheduledToRestart;
+    return this == Submitted || this == Suspended || this == ScheduledToRestart;
   }
 
   /**

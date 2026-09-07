@@ -64,4 +64,12 @@ public class ApplicationSpec extends BaseSpec {
   protected List<DriverHttpRouteSpec> driverHttpRouteList;
   protected List<DriverGrpcRouteSpec> driverGrpcRouteList;
   protected List<ConfigMapSpec> configMapSpecs;
+
+  /**
+   * When true, the operator does not request a driver for the application, and releases the driver
+   * and its resources if one is already running. An external scheduler - for example a queueing or
+   * quota controller - may set this at any point of the application lifecycle to gate admission or
+   * to preempt a running application. An unset value is equivalent to false.
+   */
+  protected Boolean suspend;
 }

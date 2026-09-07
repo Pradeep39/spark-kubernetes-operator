@@ -16512,6 +16512,8 @@ spec:
                   type: object
                 sparkRFiles:
                   type: string
+                suspend:
+                  type: boolean
               required:
                 - runtimeVersions
               type: object
@@ -16550,8 +16552,10 @@ spec:
                               - RunningWithPartialCapacity
                               - ScheduledToRestart
                               - SchedulingFailure
+                              - StoppedByScheduler
                               - Submitted
                               - Succeeded
+                              - Suspended
                               - TerminatedWithoutReleaseResources
                             type: string
                           lastObservedDriverStatus:
@@ -17225,8 +17229,10 @@ spec:
                         - RunningWithPartialCapacity
                         - ScheduledToRestart
                         - SchedulingFailure
+                        - StoppedByScheduler
                         - Submitted
                         - Succeeded
+                        - Suspended
                         - TerminatedWithoutReleaseResources
                       type: string
                     lastObservedDriverStatus:
@@ -17912,8 +17918,10 @@ spec:
                               - RunningWithPartialCapacity
                               - ScheduledToRestart
                               - SchedulingFailure
+                              - StoppedByScheduler
                               - Submitted
                               - Succeeded
+                              - Suspended
                               - TerminatedWithoutReleaseResources
                             type: string
                           lastObservedDriverStatus:
@@ -18588,8 +18596,10 @@ spec:
                           - RunningWithPartialCapacity
                           - ScheduledToRestart
                           - SchedulingFailure
+                          - StoppedByScheduler
                           - Submitted
                           - Succeeded
+                          - Suspended
                           - TerminatedWithoutReleaseResources
                         type: string
                       lastObservedDriverStatus:

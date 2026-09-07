@@ -772,4 +772,76 @@ class ApplicationStatusTest {
     assertTrue(deserialized.getStateTransitionHistory().isEmpty());
     assertEquals(Submitted, deserialized.getCurrentState().getCurrentStateSummary());
   }
+
+  @Test
+  void schedulerStopReturnsToSuspendedRegardlessOfRestartPolicy() {
+    // RestartPolicy.Never would normally release the app for good. A scheduler requested stop is
+    // not a termination though - the app must go back to Suspended and await re-admission.
+    RestartConfig neverRetryConfig = new RestartConfig();
+    neverRetryConfig.setRestartPolicy(RestartPolicy.Never);
+
+    ApplicationStatus status =
+        new ApplicationStatus()
+            .appendNewState(
+                new ApplicationState(ApplicationStateSummary.StoppedByScheduler, "bar"));
+
+    for (ResourceRetainPolicy retainPolicy : ResourceRetainPolicy.values()) {
+      ApplicationStatus updated =
+          status.terminateOrRestart(neverRetryConfig, retainPolicy, "foo", false);
+      assertEquals(
+          ApplicationStateSummary.Suspended,
+          updated.getCurrentState().getCurrentStateSummary(),
+          "unexpected state for retain policy " + retainPolicy);
+      assertEquals(1L, updated.getCurrentAttemptSummary().getAttemptInfo().getId());
+    }
+  }
+
+  @Test
+  void schedulerStopDoesNotAdvanceRestartCounters() {
+    ApplicationAttemptInfo attemptInfo = new ApplicationAttemptInfo(3L, 2L, 2L, 1L);
+    ApplicationState stoppedState =
+        new ApplicationState(ApplicationStateSummary.StoppedByScheduler, "bar");
+    ApplicationStatus status =
+        new ApplicationStatus(
+            stoppedState,
+            new TreeMap<>(Map.of(0L, stoppedState)),
+            new ApplicationAttemptSummary(),
+            new ApplicationAttemptSummary(attemptInfo));
+
+    // maxRestartAttempts is already exhausted, yet preemption must not terminate the app
+    RestartConfig restartConfig = new RestartConfig();
+    restartConfig.setRestartPolicy(RestartPolicy.Always);
+    restartConfig.setMaxRestartAttempts(1L);
+    restartConfig.setMaxRestartOnFailure(1L);
+
+    ApplicationStatus updated =
+        status.terminateOrRestart(restartConfig, ResourceRetainPolicy.Never, "", false);
+
+    assertEquals(
+        ApplicationStateSummary.Suspended, updated.getCurrentState().getCurrentStateSummary());
+    ApplicationAttemptInfo next = updated.getCurrentAttemptSummary().getAttemptInfo();
+    assertEquals(4L, next.getId());
+    assertEquals(2L, next.getRestartCounter());
+    assertEquals(2L, next.getFailureRestartCounter());
+    assertEquals(1L, next.getSchedulingFailureRestartCounter());
+  }
+
+  @Test
+  void schedulerStopTrimsHistoryIntoPreviousAttempt() {
+    ApplicationStatus status =
+        new ApplicationStatus()
+            .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, "running"))
+            .appendNewState(
+                new ApplicationState(ApplicationStateSummary.StoppedByScheduler, "stopped"));
+
+    ApplicationStatus trimmed =
+        status.terminateOrRestart(new RestartConfig(), ResourceRetainPolicy.Never, "", true);
+
+    assertEquals(
+        ApplicationStateSummary.Suspended, trimmed.getCurrentState().getCurrentStateSummary());
+    assertEquals(1L, trimmed.getStateTransitionHistory().size());
+    assertEquals(
+        status.getStateTransitionHistory(),
+        trimmed.getPreviousAttemptSummary().getStateTransitionHistory());
+  }
 }

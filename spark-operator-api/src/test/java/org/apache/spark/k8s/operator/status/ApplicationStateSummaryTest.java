@@ -29,11 +29,13 @@ class ApplicationStateSummaryTest {
   @Test
   void testIsInitializing() {
     assertTrue(ApplicationStateSummary.Submitted.isInitializing());
+    assertTrue(ApplicationStateSummary.Suspended.isInitializing());
     assertTrue(ApplicationStateSummary.ScheduledToRestart.isInitializing());
 
     assertFalse(ApplicationStateSummary.DriverRequested.isInitializing());
     assertFalse(ApplicationStateSummary.RunningHealthy.isInitializing());
     assertFalse(ApplicationStateSummary.RunningWithPartialCapacity.isInitializing());
+    assertFalse(ApplicationStateSummary.StoppedByScheduler.isInitializing());
     assertFalse(ApplicationStateSummary.Failed.isInitializing());
   }
 
@@ -53,6 +55,7 @@ class ApplicationStateSummaryTest {
 
     // States before ScheduledToRestart are not starting
     assertFalse(ApplicationStateSummary.Submitted.isStarting());
+    assertFalse(ApplicationStateSummary.Suspended.isStarting());
     assertFalse(ApplicationStateSummary.ScheduledToRestart.isStarting());
   }
 
@@ -78,6 +81,7 @@ class ApplicationStateSummaryTest {
 
     // Earlier states are not stopping
     assertFalse(ApplicationStateSummary.Submitted.isStopping());
+    assertFalse(ApplicationStateSummary.Suspended.isStopping());
     assertFalse(ApplicationStateSummary.DriverRequested.isStopping());
   }
 
@@ -156,5 +160,43 @@ class ApplicationStateSummaryTest {
     assertTrue(
         ApplicationStateSummary.RunningWithBelowThresholdExecutors.ordinal()
             < ApplicationStateSummary.DriverStartTimedOut.ordinal());
+  }
+
+  @Test
+  void testSuspendedOrdinalPosition() {
+    // Suspended must sort before ScheduledToRestart, otherwise the ordinal range used by
+    // isStarting() would wrongly classify a queued application as starting up.
+    assertTrue(
+        ApplicationStateSummary.Submitted.ordinal()
+            < ApplicationStateSummary.Suspended.ordinal());
+    assertTrue(
+        ApplicationStateSummary.Suspended.ordinal()
+            < ApplicationStateSummary.ScheduledToRestart.ordinal());
+
+    assertTrue(ApplicationStateSummary.Suspended.isInitializing());
+    assertFalse(ApplicationStateSummary.Suspended.isStarting());
+    assertFalse(ApplicationStateSummary.Suspended.isStopping());
+    assertFalse(ApplicationStateSummary.Suspended.isTerminated());
+    assertFalse(ApplicationStateSummary.Suspended.isFailure());
+    assertFalse(ApplicationStateSummary.Suspended.isInfrastructureFailure());
+  }
+
+  @Test
+  void testStoppedBySchedulerOrdinalPosition() {
+    // StoppedByScheduler must sort after RunningWithBelowThresholdExecutors so that
+    // isStopping() holds and the clean up step releases the driver.
+    assertTrue(
+        ApplicationStateSummary.RunningWithBelowThresholdExecutors.ordinal()
+            < ApplicationStateSummary.StoppedByScheduler.ordinal());
+    assertTrue(
+        ApplicationStateSummary.StoppedByScheduler.ordinal()
+            < ApplicationStateSummary.DriverStartTimedOut.ordinal());
+
+    assertTrue(ApplicationStateSummary.StoppedByScheduler.isStopping());
+    assertFalse(ApplicationStateSummary.StoppedByScheduler.isStarting());
+    assertFalse(ApplicationStateSummary.StoppedByScheduler.isTerminated());
+    // a scheduler requested stop must not count against failure based restart limits
+    assertFalse(ApplicationStateSummary.StoppedByScheduler.isFailure());
+    assertFalse(ApplicationStateSummary.StoppedByScheduler.isInfrastructureFailure());
   }
 }

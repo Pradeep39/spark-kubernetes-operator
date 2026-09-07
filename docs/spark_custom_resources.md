@@ -525,6 +525,67 @@ Note that `ttlAfterStopMillis` applies to the app as well as its secondary resou
 latter is smaller, then it takes higher precedence: operator would remove all resources related
 to this app after `ttlAfterStopMillis`.
 
+## Suspend a SparkApplication
+
+`.spec.suspend` lets an external component decide *when* an application may consume cluster
+resources. The operator never sets the field itself, it only reacts to it. This is what a queueing
+or quota controller - for example [Kueue](https://kueue.sigs.k8s.io/) - needs in order to admit and
+to preempt Spark applications.
+
+```yaml
+apiVersion: spark.apache.org/v1
+kind: SparkApplication
+metadata:
+  name: pi-suspended
+spec:
+  suspend: true
+  mainClass: "org.apache.spark.examples.SparkPi"
+  jars: "local:///opt/spark/examples/jars/spark-examples.jar"
+  runtimeVersions:
+    sparkVersion: "4.2.0"
+```
+
+An unset `suspend` behaves exactly as `false`, so existing applications are unaffected.
+
+### Gating start up
+
+While `suspend` is true and the application is initializing - that is in `Submitted`,
+`ScheduledToRestart` or `Suspended` - the operator does not request a driver at all. The
+application moves to the `Suspended` state and stays there until the flag is cleared, so a queued
+application holds no cluster resources.
+
+None of the `.spec.applicationTolerations.applicationTimeoutConfig` timeouts apply while the
+application waits, because no driver has been requested yet. Queue-time policy is left entirely to
+the external component. `driverStartTimeoutMillis` starts counting only once the flag is cleared
+and the application reaches `DriverRequested`.
+
+### Preempting a running application
+
+Setting `suspend` to true after start up asks the operator to hand the resources back. This is
+supported from every state in which a driver exists, namely `DriverRequested`, `DriverStarted`,
+`DriverReady`, `InitializedBelowThresholdExecutors`, `RunningHealthy`,
+`RunningWithPartialCapacity` and `RunningWithBelowThresholdExecutors`.
+
+The application moves to `StoppedByScheduler`, the operator deletes the driver - and with it the
+executors and the secondary resources the driver owns - and the application then goes back to
+`Suspended` to await re-admission.
+
+A scheduler requested stop is deliberately **not** treated as an application failure:
+
+* `StoppedByScheduler` is not part of the failure or infrastructure-failure state sets, so it does
+  not by itself trigger `RestartPolicy.OnFailure` or `RestartPolicy.OnInfrastructureFailure`.
+* The restart, failure and scheduling-failure counters are carried over untouched, so repeated
+  preemption cannot exhaust `maxRestartAttempts`, `maxRestartOnFailure` or
+  `maxRestartOnSchedulingFailure`.
+* The application goes back to `Suspended` whatever `restartPolicy` is configured, including
+  `RestartPolicy.Never`. Preemption is a scheduling decision, not the end of the application.
+* `resourceRetainPolicy` does not apply. Driver resources are always released, because a retained
+  driver would block the next attempt.
+
+Each preemption does open a new attempt, so `.status.currentAttemptSummary.attemptInfo.id` is
+incremented and the history of the preempted attempt is moved to `.status.previousAttemptSummary`
+as usual.
+
 ## Spark Cluster
 
 Spark Operator also supports launching Spark clusters in k8s via `SparkCluster` custom resource,

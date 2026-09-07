@@ -154,6 +154,19 @@ public class Constants {
   public static final String SUBMITTED_STATE_MESSAGE =
       "Spark application has been created on Kubernetes Cluster.";
 
+  /** Message indicating that the application is withheld because .spec.suspend is set. */
+  public static final String SUSPENDED_MESSAGE =
+      "Application is suspended, no driver would be requested until .spec.suspend is cleared.";
+
+  /** Message indicating that an external scheduler asked to release a running application. */
+  public static final String STOPPED_BY_SCHEDULER_MESSAGE =
+      "An external scheduler set .spec.suspend on a running application, releasing the driver.";
+
+  /** Message indicating that a released application is waiting to be admitted again. */
+  public static final String SUSPENDED_AFTER_STOP_MESSAGE =
+      "Application has been released on scheduler request and awaits re-admission. Restart and "
+          + "failure counters are not advanced for a scheduler-requested stop.";
+
   /** Message indicating that the application status cannot be processed. */
   public static final String UNKNOWN_STATE_MESSAGE = "Cannot process application status.";
 
