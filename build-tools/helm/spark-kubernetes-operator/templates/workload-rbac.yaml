@@ -33,6 +33,11 @@ rules:
       - update
       - patch
       - delete
+      # The Spark driver releases the resources it created with label-selector
+      # deletes, which the API server authorizes as deletecollection rather than
+      # delete. Without this, KubernetesClusterSchedulerBackend.stop() fails with a
+      # 403 on shutdown for services, executor configmaps and driver-owned PVCs.
+      - deletecollection
   - apiGroups:
       - "apps"
     resources:
