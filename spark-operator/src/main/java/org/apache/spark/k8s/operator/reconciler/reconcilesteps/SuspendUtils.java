@@ -19,6 +19,7 @@
 
 package org.apache.spark.k8s.operator.reconciler.reconcilesteps;
 
+import static org.apache.spark.k8s.operator.config.SparkOperatorConf.KUEUE_ENABLED;
 import static org.apache.spark.k8s.operator.config.SparkOperatorConf.SUSPEND_HOLD_REQUEUE_INTERVAL_SECONDS;
 import static org.apache.spark.k8s.operator.reconciler.ReconcileProgress.completeAndRequeueAfter;
 
@@ -78,7 +79,8 @@ final class SuspendUtils {
     // suspended before it was ever queued is not told about one. That event stays until the API
     // server drops it, and the operator may not delete events, so say that it no longer applies
     // rather than leaving a contradicting pair behind.
-    if (KueueWorkloadFactory.hasQueueName(resource)
+    if (KUEUE_ENABLED.getValue()
+        && KueueWorkloadFactory.hasQueueName(resource)
         && KueueWorkloadUtils.releaseWorkload(context.getClient(), resource)) {
       message +=
           " It holds no Kueue Workload while suspended, so an earlier "

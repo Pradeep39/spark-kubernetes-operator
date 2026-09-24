@@ -727,6 +727,35 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * When enabled, the operator builds and owns the Kueue Workload for a queued resource, and holds
+   * the driver or master until Kueue admits it.
+   *
+   * <p>Disable this when a Kueue-side integration owns the Workload instead. Kueue's job framework
+   * creates a Workload for a resource it has an integration for and drives admission by toggling
+   * {@code spec.suspend}; if the operator also creates one, both controllers set
+   * {@code controller: true} on a Workload owned by the same resource and each treats the other's
+   * as wrong - Kueue's {@code FindMatchingWorkloads} claims and deletes the operator's, the
+   * operator recreates it, and the driver is never released. Only one side may own the Workload.
+   *
+   * <p>Both sides key off the same {@code kueue.x-k8s.io/queue-name} label, so the label cannot be
+   * used to choose between them - which is why this option exists.
+   */
+  public static final ConfigOption<Boolean> KUEUE_ENABLED =
+      ConfigOption.<Boolean>builder()
+          .key("spark.kubernetes.operator.kueue.enabled")
+          .enableDynamicOverride(false)
+          .description(
+              "When enabled, the operator creates and deletes the Kueue Workload for a resource "
+                  + "labelled with a queue name, and holds its driver or master until Kueue admits "
+                  + "it. Disable this when a Kueue-side job integration owns the Workload instead: "
+                  + "both sides would otherwise create one for the same resource and fight over it, "
+                  + "and the resource would never start. Disabling this does not disable queueing - "
+                  + "it hands ownership of it to Kueue.")
+          .typeParameterClass(Boolean.class)
+          .defaultValue(true)
+          .build();
+
+  /**
    * When enabled, the operator watches Kueue Workloads so that an admission starts the queued
    * resource right away. The operator needs RBAC access to Kueue Workloads and Kueue must be
    * installed, otherwise the informer stays unhealthy and so does the operator.

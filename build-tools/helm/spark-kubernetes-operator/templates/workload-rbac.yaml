@@ -33,6 +33,10 @@ rules:
       - update
       - patch
       - delete
+      # Spark's driver deletes its services by label selector on shutdown, which the API
+      # server authorises as deletecollection rather than delete. Without this the driver
+      # logs a 403 on every shutdown and leaves its services behind.
+      - deletecollection
   - apiGroups:
       - "apps"
     resources:

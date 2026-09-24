@@ -19,6 +19,8 @@
 
 package org.apache.spark.k8s.operator.reconciler.reconcilesteps;
 
+import static org.apache.spark.k8s.operator.config.SparkOperatorConf.KUEUE_ENABLED;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -135,8 +137,10 @@ public final class AppCleanUpStep extends AppReconcileStep {
       return ReconcileProgress.proceed();
     }
 
-    if (KueueWorkloadFactory.hasQueueName(application)) {
+    if (KUEUE_ENABLED.getValue() && KueueWorkloadFactory.hasQueueName(application)) {
       // Release the quota. A restarted attempt is queued again with a new Workload.
+      // Skipped when a Kueue-side integration owns the Workload: it is not the operator's to
+      // delete, and Kueue releases the quota itself when the job finishes.
       KueueWorkloadUtils.releaseWorkload(context.getClient(), application);
     }
     List<HasMetadata> resourcesToRemove = new ArrayList<>();
