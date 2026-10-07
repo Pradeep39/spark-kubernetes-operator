@@ -748,9 +748,9 @@ public final class SparkOperatorConf {
               "When enabled, the operator creates and deletes the Kueue Workload for a resource "
                   + "labelled with a queue name, and holds its driver or master until Kueue admits "
                   + "it. Disable this when a Kueue-side job integration owns the Workload instead: "
-                  + "both sides would otherwise create one for the same resource and fight over it, "
-                  + "and the resource would never start. Disabling this does not disable queueing - "
-                  + "it hands ownership of it to Kueue.")
+                  + "both sides would otherwise create one for the same resource and fight over "
+                  + "it, and the resource would never start. Disabling this does not disable "
+                  + "queueing - it hands ownership of it to Kueue.")
           .typeParameterClass(Boolean.class)
           .defaultValue(true)
           .build();
