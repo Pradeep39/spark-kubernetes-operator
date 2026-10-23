@@ -285,8 +285,13 @@ application succeeded, and `FAILED` otherwise, unless it had completed or failed
 executors of the current attempt are the executor pods whose `spark-app-selector` label is the
 `spark.app.id` of the attempt. An application which sets `spark.app.id` in its `sparkConf` has the
 same id in every attempt, so it may also record executors left over from a previous attempt. The
-map starts empty with each attempt and when the application is suspended. Executors whose id is
-above `spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp` are not recorded.
+map starts empty with each attempt and when the application is suspended. To keep the status
+within the size limit of a Kubernetes object, it holds at most
+`spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp` executors (default 1000), like
+kubeflow/spark-operator#2977: beyond it, the executors which are gone (`COMPLETED`, `FAILED` or
+`UNKNOWN`) are evicted first, oldest first, so that a long-running application keeps recording its
+new executors. Only if its pending and running executors exceed the limit by themselves, the newest
+of them are not recorded, and the operator logs a warning.
 
 The executor states are inferred when the application is reconciled, which a change of any of
 its executor pods triggers. The reconciliations of each application are rate limited by

@@ -75,7 +75,6 @@ class AppExecutorStateStepTest {
         .withName(name)
         .addToLabels(Constants.LABEL_SPARK_ROLE_NAME, Constants.LABEL_SPARK_ROLE_EXECUTOR_VALUE)
         .addToLabels(Constants.LABEL_SPARK_APP_ID, "sentinel-0")
-        .addToLabels(Constants.LABEL_SPARK_EXECUTOR_ID, "1")
         .endMetadata()
         .withNewStatus()
         .withPhase(phase)

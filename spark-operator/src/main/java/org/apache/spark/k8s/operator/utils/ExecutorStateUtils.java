@@ -19,15 +19,19 @@
 
 package org.apache.spark.k8s.operator.utils;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
 import io.fabric8.kubernetes.api.model.Pod;
+import lombok.extern.slf4j.Slf4j;
 
 import org.apache.spark.k8s.operator.Constants;
 import org.apache.spark.k8s.operator.SparkAppSubmissionWorker;
@@ -40,9 +44,11 @@ import org.apache.spark.k8s.operator.status.ExecutorState;
 /**
  * Infers the state of each executor of a Spark application from its pods, the way the Kubeflow
  * Spark Operator records its {@code status.executorState}: each executor pod of the current attempt
- * is recorded with the state of its phase, an executor which was recorded is kept after its pod is
- * gone, and an executor whose id is above a configured limit is not recorded.
+ * is recorded with the state of its phase, and an executor which was recorded is kept after its pod
+ * is gone. The number of recorded executors is bounded like kubeflow/spark-operator#2977 bounds it,
+ * by evicting the oldest executors which are gone first.
  */
+@Slf4j
 public final class ExecutorStateUtils {
 
   /** The Spark configuration which sets the application id, see {@link #currentAttemptAppId}. */
@@ -86,17 +92,19 @@ public final class ExecutorStateUtils {
    *
    * <ul>
    *   <li>An executor pod of the current attempt, see {@link #currentAttemptAppId}, is recorded
-   *       with the state of its phase, unless its executor id is above maxTrackedExecutorPerApp.
+   *       with the state of its phase.
    *   <li>A recorded executor which has not terminated and whose pod is gone is kept as UNKNOWN
    *       while the driver is running, as COMPLETED after the application succeeded, and as
    *       FAILED otherwise.
    *   <li>Any other recorded executor is kept as it is.
+   *   <li>The executor states are then bounded to maxTrackedExecutorPerApp entries, see {@link
+   *       #enforceCap}.
    * </ul>
    *
    * @param app The Spark application, with the executor states recorded so far.
    * @param executorPods The executor pods of the application, of any attempt.
-   * @param maxTrackedExecutorPerApp The highest executor id to record, or a non-positive number to
-   *     record every executor.
+   * @param maxTrackedExecutorPerApp The maximum number of executors to record, or a non-positive
+   *     number to record every executor.
    * @return The executor states by executor pod name.
    */
   public static SortedMap<String, ExecutorState> observe(
@@ -108,8 +116,7 @@ public final class ExecutorStateUtils {
     String appId = currentAttemptAppId(app);
     Set<String> observed = new HashSet<>();
     for (Pod pod : executorPods) {
-      if (!appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))
-          || (maxTrackedExecutorPerApp > 0 && executorId(pod) > maxTrackedExecutorPerApp)) {
+      if (!appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))) {
         continue;
       }
       String name = pod.getMetadata().getName();
@@ -129,7 +136,74 @@ public final class ExecutorStateUtils {
         executorState.put(entry.getKey(), ExecutorState.FAILED);
       }
     }
+    enforceCap(app, executorState, maxTrackedExecutorPerApp);
     return executorState;
+  }
+
+  /**
+   * Bounds the executor states to maxTrackedExecutorPerApp entries, like
+   * kubeflow/spark-operator#2977. The executors which are gone, i.e. COMPLETED, FAILED or UNKNOWN,
+   * are evicted first, oldest first. If the executors which are still pending or running exceed the
+   * limit by themselves, the newest of them are evicted, with a warning. Spark assigns increasing
+   * executor ids within an application, so a lower id is an older executor. Ties, including names
+   * without an id, are broken by name, so that the same executors are evicted in each
+   * reconciliation.
+   *
+   * @param app The Spark application, for the warning.
+   * @param executorState The executor states to bound, in place.
+   * @param maxTrackedExecutorPerApp The maximum number of entries, or a non-positive number for no
+   *     limit.
+   */
+  static void enforceCap(
+      final SparkApplication app,
+      final SortedMap<String, ExecutorState> executorState,
+      final int maxTrackedExecutorPerApp) {
+    if (maxTrackedExecutorPerApp <= 0 || executorState.size() <= maxTrackedExecutorPerApp) {
+      return;
+    }
+    Comparator<String> oldestFirst =
+        Comparator.<String>comparingLong(ExecutorStateUtils::executorIdFromPodName)
+            .thenComparing(Comparator.<String>naturalOrder());
+    List<String> gone = new ArrayList<>();
+    List<String> live = new ArrayList<>();
+    for (Map.Entry<String, ExecutorState> entry : executorState.entrySet()) {
+      if (entry.getValue().isTerminated() || ExecutorState.UNKNOWN == entry.getValue()) {
+        gone.add(entry.getKey());
+      } else {
+        live.add(entry.getKey());
+      }
+    }
+    gone.sort(oldestFirst);
+    for (String name : gone) {
+      if (executorState.size() <= maxTrackedExecutorPerApp) {
+        return;
+      }
+      executorState.remove(name);
+    }
+    if (executorState.size() <= maxTrackedExecutorPerApp) {
+      return;
+    }
+    live.sort(
+        Comparator.<String>comparingLong(ExecutorStateUtils::executorIdFromPodName)
+            .reversed()
+            .thenComparing(Comparator.<String>naturalOrder()));
+    int dropped = 0;
+    for (String name : live) {
+      if (executorState.size() <= maxTrackedExecutorPerApp) {
+        break;
+      }
+      executorState.remove(name);
+      dropped++;
+    }
+    if (dropped > 0) {
+      log.warn(
+          "Dropped {} pending or running executors of {}/{} from status.executorState, since its "
+              + "limit of {} is taken by pending or running executors",
+          dropped,
+          app.getMetadata().getNamespace(),
+          app.getMetadata().getName(),
+          maxTrackedExecutorPerApp);
+    }
   }
 
   /**
@@ -149,22 +223,30 @@ public final class ExecutorStateUtils {
   }
 
   /**
-   * Returns the id of an executor from the {@link Constants#LABEL_SPARK_EXECUTOR_ID} label of its
-   * pod, or 0 if the label is missing or not a number, so that such a pod is recorded.
+   * Returns the id of an executor from the trailing digits of its pod name, e.g. 12 for {@code
+   * pi-0-exec-12}, or 0 if the name does not end with digits. The executor states are keyed by pod
+   * name, and the pods of the executors which are gone cannot be read any more.
    *
-   * @param pod The executor pod.
+   * @param podName The name of the executor pod.
    * @return The executor id, or 0.
    */
-  static long executorId(final Pod pod) {
-    String id = pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_EXECUTOR_ID);
-    if (id == null) {
+  static long executorIdFromPodName(final String podName) {
+    int start = podName.length();
+    while (start > 0 && isAsciiDigit(podName.charAt(start - 1))) {
+      start--;
+    }
+    if (start == podName.length()) {
       return 0L;
     }
     try {
-      return Long.parseLong(id);
+      return Long.parseLong(podName.substring(start));
     } catch (NumberFormatException e) {
-      return 0L;
+      return Long.MAX_VALUE;
     }
+  }
+
+  private static boolean isAsciiDigit(final char c) {
+    return c >= '0' && c <= '9';
   }
 
   /**

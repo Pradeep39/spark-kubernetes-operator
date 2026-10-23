@@ -233,12 +233,13 @@ public final class SparkOperatorConf {
           .key("spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp")
           .enableDynamicOverride(true)
           .description(
-              "The highest executor id which the operator records in the status.executorState "
-                  + "of a Spark application, like --max-tracked-executor-per-app of the Kubeflow "
-                  + "Spark Operator. It bounds by executor id, not by the number of running "
-                  + "executors: Spark never reuses an id within an application, so a "
-                  + "long-running application which replaces executors stops recording new ones "
-                  + "once their ids pass it. A non-positive value records every executor.")
+              "The maximum number of executors which the operator records in the "
+                  + "status.executorState of a Spark application, like "
+                  + "--max-tracked-executor-per-app of the Kubeflow Spark Operator with "
+                  + "kubeflow/spark-operator#2977, to keep the status within the size limit of "
+                  + "a Kubernetes object. Beyond it, the executors which are gone are evicted "
+                  + "first, oldest first, and then the newest pending or running executors, with "
+                  + "a warning. A non-positive value records every executor.")
           .typeParameterClass(Integer.class)
           .defaultValue(1000)
           .build();
