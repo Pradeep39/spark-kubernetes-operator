@@ -288,6 +288,27 @@ same id in every attempt, so it may also record executors left over from a previ
 map starts empty with each attempt and when the application is suspended. Executors whose id is
 above `spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp` are not recorded.
 
+The executor states are inferred when the application is reconciled, which a change of any of
+its executor pods triggers. The reconciliations of each application are rate limited by
+`spark.kubernetes.operator.reconciler.rateLimiter.maxLoopForPeriod` (default 5) per
+`spark.kubernetes.operator.reconciler.rateLimiter.refreshPeriodSeconds` (default 15), so once an
+application uses up its reconciliations, e.g. while Dynamic Allocation adds or removes many
+executors, `status.executorState` lags behind its executor pods until the next period, by up to
+`refreshPeriodSeconds`. An executor whose pod completes and is deleted within that lag is then
+recorded as `UNKNOWN`, and one which is created and deleted within it is not recorded at all.
+To keep the executor states closer to the executor pods, allow more reconciliations per period,
+e.g. in the Helm chart values:
+
+```yaml
+operatorConfiguration:
+  spark-operator.properties: |+
+    spark.kubernetes.operator.reconciler.rateLimiter.maxLoopForPeriod=30
+    spark.kubernetes.operator.reconciler.rateLimiter.refreshPeriodSeconds=15
+```
+
+Both properties are read at start-up, so the operator has to be restarted to apply them. A
+non-positive `maxLoopForPeriod` disables the rate limiter.
+
 ## Configure the Tolerations for SparkApplication
 
 ### Restart
