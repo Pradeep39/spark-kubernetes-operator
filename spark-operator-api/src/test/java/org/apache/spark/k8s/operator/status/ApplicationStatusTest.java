@@ -43,6 +43,8 @@ import org.apache.spark.k8s.operator.spec.RestartConfig;
 import org.apache.spark.k8s.operator.spec.RestartPolicy;
 
 class ApplicationStatusTest {
+  private static final Map<String, ExecutorState> EXECUTORS =
+      Map.of("app-exec-1", ExecutorState.RUNNING, "app-exec-2", ExecutorState.PENDING);
 
   @Test
   void testInitStatus() {
@@ -952,9 +954,6 @@ class ApplicationStatusTest {
                 ApplicationState.class)
             .getSuspendReason());
   }
-
-  private static final Map<String, ExecutorState> EXECUTORS =
-      Map.of("app-exec-1", ExecutorState.RUNNING, "app-exec-2", ExecutorState.PENDING);
 
   private static ApplicationStatus runningWithExecutors() {
     return new ApplicationStatus()
