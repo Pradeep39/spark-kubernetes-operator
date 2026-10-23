@@ -42,6 +42,8 @@ import org.apache.spark.k8s.operator.status.ExecutorState;
  * restart, the executors which were deleted meanwhile are inferred as before.
  */
 public final class DeletedExecutorPods {
+  private final ConcurrentMap<ResourceID, ConcurrentMap<String, DeletedExecutor>> byApplication =
+      new ConcurrentHashMap<>();
 
   /**
    * The final state of an executor pod which was deleted.
@@ -52,9 +54,6 @@ public final class DeletedExecutorPods {
    * @param state The state of the executor, COMPLETED or FAILED.
    */
   public record DeletedExecutor(String podName, String sparkAppId, ExecutorState state) {}
-
-  private final ConcurrentMap<ResourceID, ConcurrentMap<String, DeletedExecutor>> byApplication =
-      new ConcurrentHashMap<>();
 
   /**
    * Remembers a deleted pod if it is an executor pod of a Spark application which completed or
@@ -106,7 +105,6 @@ public final class DeletedExecutorPods {
    * @param application The id of the SparkApplication.
    * @param executors The deleted executors to forget, as returned by {@link #get}.
    */
-  @SuppressWarnings("PMD.ReturnEmptyCollectionRatherThanNull")
   public void remove(final ResourceID application, final Collection<DeletedExecutor> executors) {
     if (executors.isEmpty()) {
       return;
