@@ -88,18 +88,8 @@ public final class ExecutorStateUtils {
   }
 
   /**
-   * Returns the executor states of the application after observing its executor pods.
-   *
-   * <ul>
-   *   <li>An executor pod of the current attempt, see {@link #currentAttemptAppId}, is recorded
-   *       with the state of its phase.
-   *   <li>A recorded executor which has not terminated and whose pod is gone is kept as UNKNOWN
-   *       while the driver is running, as COMPLETED after the application succeeded, and as
-   *       FAILED otherwise.
-   *   <li>Any other recorded executor is kept as it is.
-   *   <li>The executor states are then bounded to maxTrackedExecutorPerApp entries, see {@link
-   *       #enforceCap}.
-   * </ul>
+   * Returns the executor states of the application after observing its executor pods, without any
+   * deleted executor pods, see {@link #observe(SparkApplication, Collection, Collection, int)}.
    *
    * @param app The Spark application, with the executor states recorded so far.
    * @param executorPods The executor pods of the application, of any attempt.
@@ -111,10 +101,48 @@ public final class ExecutorStateUtils {
       final SparkApplication app,
       final Collection<Pod> executorPods,
       final int maxTrackedExecutorPerApp) {
+    return observe(app, executorPods, List.of(), maxTrackedExecutorPerApp);
+  }
+
+  /**
+   * Returns the executor states of the application after observing its executor pods, and the
+   * executor pods which were deleted since the executor states were last recorded.
+   *
+   * <ul>
+   *   <li>A deleted executor pod of the current attempt, see {@link #currentAttemptAppId}, which
+   *       completed or failed is recorded as COMPLETED or FAILED, whatever was recorded for it.
+   *   <li>An executor pod of the current attempt is recorded with the state of its phase.
+   *   <li>A recorded executor which has not terminated and whose pod is gone is kept as UNKNOWN
+   *       while the driver is running, as COMPLETED after the application succeeded, and as
+   *       FAILED otherwise.
+   *   <li>Any other recorded executor is kept as it is.
+   *   <li>The executor states are then bounded to maxTrackedExecutorPerApp entries, see {@link
+   *       #enforceCap}.
+   * </ul>
+   *
+   * @param app The Spark application, with the executor states recorded so far.
+   * @param executorPods The executor pods of the application, of any attempt.
+   * @param deletedExecutors The final states of the executor pods of the application which were
+   *     deleted, of any attempt, see {@link DeletedExecutorPods}.
+   * @param maxTrackedExecutorPerApp The maximum number of executors to record, or a non-positive
+   *     number to record every executor.
+   * @return The executor states by executor pod name.
+   */
+  public static SortedMap<String, ExecutorState> observe(
+      final SparkApplication app,
+      final Collection<Pod> executorPods,
+      final Collection<DeletedExecutorPods.DeletedExecutor> deletedExecutors,
+      final int maxTrackedExecutorPerApp) {
     ApplicationStatus status = app.getStatus();
     SortedMap<String, ExecutorState> executorState = new TreeMap<>(status.getExecutorState());
     String appId = currentAttemptAppId(app);
     Set<String> observed = new HashSet<>();
+    for (DeletedExecutorPods.DeletedExecutor deleted : deletedExecutors) {
+      if (appId.equals(deleted.sparkAppId())) {
+        executorState.put(deleted.podName(), deleted.state());
+        observed.add(deleted.podName());
+      }
+    }
     for (Pod pod : executorPods) {
       if (!appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))) {
         continue;

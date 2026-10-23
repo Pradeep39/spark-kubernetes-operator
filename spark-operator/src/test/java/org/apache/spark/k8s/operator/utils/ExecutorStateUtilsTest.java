@@ -258,6 +258,49 @@ class ExecutorStateUtilsTest {
   }
 
   @Test
+  void observeRecordsTheFinalStateOfADeletedExecutorRatherThanUnknown() {
+    setState(
+        ApplicationStateSummary.RunningHealthy,
+        Map.of("app-exec-1", ExecutorState.RUNNING, "app-exec-2", ExecutorState.PENDING));
+    String appId = ExecutorStateUtils.currentAttemptAppId(app);
+    assertEquals(
+        Map.of(
+            "app-exec-1", ExecutorState.COMPLETED,
+            "app-exec-2", ExecutorState.FAILED,
+            // Created and deleted between two reconciliations
+            "app-exec-3", ExecutorState.FAILED),
+        ExecutorStateUtils.observe(
+            app,
+            List.of(),
+            List.of(
+                new DeletedExecutorPods.DeletedExecutor(
+                    "app-exec-1", appId, ExecutorState.COMPLETED),
+                new DeletedExecutorPods.DeletedExecutor("app-exec-2", appId, ExecutorState.FAILED),
+                new DeletedExecutorPods.DeletedExecutor(
+                    "app-exec-3", appId, ExecutorState.FAILED),
+                new DeletedExecutorPods.DeletedExecutor(
+                    "old-exec-1", "sentinel-previous", ExecutorState.FAILED)),
+            1000));
+  }
+
+  @Test
+  void observeKeepsAFailedDeletedExecutorAfterTheApplicationSucceeded() {
+    // Without the final state of its pod, a missing executor is COMPLETED after the success
+    setState(ApplicationStateSummary.Succeeded, Map.of("app-exec-1", ExecutorState.PENDING));
+    assertEquals(
+        Map.of("app-exec-1", ExecutorState.FAILED),
+        ExecutorStateUtils.observe(
+            app,
+            List.of(),
+            List.of(
+                new DeletedExecutorPods.DeletedExecutor(
+                    "app-exec-1",
+                    ExecutorStateUtils.currentAttemptAppId(app),
+                    ExecutorState.FAILED)),
+            1000));
+  }
+
+  @Test
   void observeKeepsAMissingExecutorAsUnknownWhileTheDriverRuns() {
     setState(
         ApplicationStateSummary.RunningHealthy,

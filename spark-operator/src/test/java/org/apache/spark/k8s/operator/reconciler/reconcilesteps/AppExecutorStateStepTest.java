@@ -20,6 +20,7 @@
 package org.apache.spark.k8s.operator.reconciler.reconcilesteps;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -31,6 +32,7 @@ import java.util.Set;
 
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
+import io.javaoperatorsdk.operator.processing.event.ResourceID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +44,7 @@ import org.apache.spark.k8s.operator.status.ApplicationState;
 import org.apache.spark.k8s.operator.status.ApplicationStateSummary;
 import org.apache.spark.k8s.operator.status.ApplicationStatus;
 import org.apache.spark.k8s.operator.status.ExecutorState;
+import org.apache.spark.k8s.operator.utils.DeletedExecutorPods;
 import org.apache.spark.k8s.operator.utils.SparkAppStatusRecorder;
 import org.apache.spark.k8s.operator.utils.TestUtils;
 
@@ -49,6 +52,7 @@ class AppExecutorStateStepTest {
   private SparkAppContext mockContext;
   private SparkAppStatusRecorder mockRecorder;
   private SparkApplication app;
+  private DeletedExecutorPods deletedExecutorPods;
   private AppExecutorStateStep step;
 
   @BeforeEach
@@ -59,7 +63,8 @@ class AppExecutorStateStepTest {
     app.setStatus(
         new ApplicationStatus()
             .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, "")));
-    step = new AppExecutorStateStep();
+    deletedExecutorPods = new DeletedExecutorPods();
+    step = new AppExecutorStateStep(deletedExecutorPods);
     when(mockContext.getResource()).thenReturn(app);
     when(mockRecorder.persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class)))
         .thenAnswer(
@@ -73,6 +78,8 @@ class AppExecutorStateStepTest {
     return new PodBuilder()
         .withNewMetadata()
         .withName(name)
+        .withNamespace("default")
+        .addToLabels(Constants.LABEL_SPARK_APPLICATION_NAME, "sentinel")
         .addToLabels(Constants.LABEL_SPARK_ROLE_NAME, Constants.LABEL_SPARK_ROLE_EXECUTOR_VALUE)
         .addToLabels(Constants.LABEL_SPARK_APP_ID, "sentinel-0")
         .endMetadata()
@@ -132,5 +139,45 @@ class AppExecutorStateStepTest {
     assertEquals(
         ReconcileProgress.completeAndImmediateRequeue(),
         step.reconcile(mockContext, mockRecorder));
+  }
+
+  @Test
+  void recordsAndForgetsTheFinalStateOfADeletedExecutor() {
+    app.setStatus(app.getStatus().withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING)));
+    deletedExecutorPods.record(executorPod("app-exec-1", "Succeeded"));
+    when(mockContext.getExecutorsForApplication()).thenReturn(Set.of());
+
+    assertEquals(ReconcileProgress.proceed(), step.reconcile(mockContext, mockRecorder));
+
+    assertEquals(
+        Map.of("app-exec-1", ExecutorState.COMPLETED), app.getStatus().getExecutorState());
+    assertTrue(deletedExecutorPods.get(ResourceID.fromResource(app)).isEmpty());
+  }
+
+  @Test
+  void keepsADeletedExecutorWhenTheStatusUpdateFails() {
+    when(mockRecorder.persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class)))
+        .thenReturn(false);
+    deletedExecutorPods.record(executorPod("app-exec-1", "Failed"));
+    when(mockContext.getExecutorsForApplication()).thenReturn(Set.of());
+
+    assertEquals(
+        ReconcileProgress.completeAndImmediateRequeue(),
+        step.reconcile(mockContext, mockRecorder));
+
+    assertEquals(1, deletedExecutorPods.get(ResourceID.fromResource(app)).size());
+  }
+
+  @Test
+  void forgetsTheDeletedExecutorsOfASuspendedApplication() {
+    app.setStatus(
+        app.getStatus()
+            .appendNewState(new ApplicationState(ApplicationStateSummary.Suspended, "")));
+    deletedExecutorPods.record(executorPod("app-exec-1", "Succeeded"));
+
+    assertEquals(ReconcileProgress.proceed(), step.reconcile(mockContext, mockRecorder));
+
+    assertTrue(deletedExecutorPods.get(ResourceID.fromResource(app)).isEmpty());
+    assertEquals(Map.of(), app.getStatus().getExecutorState());
   }
 }

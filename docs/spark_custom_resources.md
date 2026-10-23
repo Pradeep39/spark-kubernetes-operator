@@ -280,8 +280,14 @@ status:
 
 An executor is `PENDING`, `RUNNING`, `COMPLETED` or `FAILED` while its pod is in the phase
 `Pending`, `Running`, `Succeeded` or `Failed`, and `UNKNOWN` in any other phase. An executor is
-kept after its pod is gone: it becomes `UNKNOWN` while the driver is running, `COMPLETED` after the
-application succeeded, and `FAILED` otherwise, unless it had completed or failed already. The
+kept after its pod is gone. When its pod is deleted, the operator records the phase which the pod
+had last, so an executor whose pod completed or failed as it was deleted, e.g. when Dynamic
+Allocation removed it, is `COMPLETED` or `FAILED`, even if the pod is gone by the time the
+application is reconciled. Unlike the Kubeflow Spark Operator, which only sees the pods which
+remain, this records how the executor ended rather than `UNKNOWN`. Otherwise, e.g. for a pod which
+was force-deleted before it stopped, or after an operator restart, an executor whose pod is
+gone becomes `UNKNOWN` while the driver is running, `COMPLETED` after the application succeeded,
+and `FAILED` otherwise, unless it had completed or failed already. The
 executors of the current attempt are the executor pods whose `spark-app-selector` label is the
 `spark.app.id` of the attempt. An application which sets `spark.app.id` in its `sparkConf` has the
 same id in every attempt, so it may also record executors left over from a previous attempt. The
@@ -299,9 +305,9 @@ its executor pods triggers. The reconciliations of each application are rate lim
 `spark.kubernetes.operator.reconciler.rateLimiter.refreshPeriodSeconds` (default 15), so once an
 application uses up its reconciliations, e.g. while Dynamic Allocation adds or removes many
 executors, `status.executorState` lags behind its executor pods until the next period, by up to
-`refreshPeriodSeconds`. An executor whose pod completes and is deleted within that lag is then
-recorded as `UNKNOWN`, and one which is created and deleted within it is not recorded at all.
-To keep the executor states closer to the executor pods, allow more reconciliations per period,
+`refreshPeriodSeconds`. An executor whose pod is created and deleted within that lag is still
+recorded if its pod completed or failed, but not if it was deleted while pending, e.g. when Dynamic
+Allocation no longer needed it. To keep the executor states closer to the executor pods, allow more reconciliations per period,
 e.g. in the Helm chart values:
 
 ```yaml
