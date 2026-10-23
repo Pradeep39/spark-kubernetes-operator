@@ -81,6 +81,12 @@ public final class Constants {
   /** The value for the Spark executor role label. */
   public static final String LABEL_SPARK_ROLE_EXECUTOR_VALUE = "executor";
 
+  /** The label which Spark sets to the id of an executor on its pod. */
+  public static final String LABEL_SPARK_EXECUTOR_ID = "spark-exec-id";
+
+  /** The label which Spark sets to the Spark application id on its driver and executor pods. */
+  public static final String LABEL_SPARK_APP_ID = "spark-app-selector";
+
   /** The value for the Spark cluster role label. */
   public static final String LABEL_SPARK_ROLE_CLUSTER_VALUE = "cluster";
 

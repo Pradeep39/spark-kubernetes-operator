@@ -17895,6 +17895,16 @@ spec:
                         - SpecSuspend
                       type: string
                   type: object
+                executorState:
+                  additionalProperties:
+                    enum:
+                      - COMPLETED
+                      - FAILED
+                      - PENDING
+                      - RUNNING
+                      - UNKNOWN
+                    type: string
+                  type: object
                 previousAttemptSummary:
                   properties:
                     attemptInfo:

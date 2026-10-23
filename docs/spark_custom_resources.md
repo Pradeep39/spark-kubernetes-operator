@@ -265,6 +265,29 @@ Please be advised that this is a best-effort failure identification. You may sti
 debug actual failure from the driver pods. Spark Operator would stage the last observed
 driver pod status with the stopping state for audit purposes.
 
+## Executor States
+
+Spark Operator records the state of each executor of the current attempt in
+`status.executorState`, by executor pod name, with the same values as the `status.executorState`
+of the Kubeflow Spark Operator:
+
+```yaml
+status:
+  executorState:
+    pi-5f1d8e3a9b2c4f60-exec-1: RUNNING
+    pi-5f1d8e3a9b2c4f60-exec-2: PENDING
+```
+
+An executor is `PENDING`, `RUNNING`, `COMPLETED` or `FAILED` while its pod is in the phase
+`Pending`, `Running`, `Succeeded` or `Failed`, and `UNKNOWN` in any other phase. An executor is
+kept after its pod is gone: it becomes `UNKNOWN` while the driver is running, `COMPLETED` after the
+application succeeded, and `FAILED` otherwise, unless it had completed or failed already. The
+executors of the current attempt are the executor pods whose `spark-app-selector` label is the
+`spark.app.id` of the attempt. An application which sets `spark.app.id` in its `sparkConf` has the
+same id in every attempt, so it may also record executors left over from a previous attempt. The
+map starts empty with each attempt and when the application is suspended. Executors whose id is
+above `spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp` are not recorded.
+
 ## Configure the Tolerations for SparkApplication
 
 ### Restart

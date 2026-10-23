@@ -222,6 +222,28 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * The highest executor id which the operator records in the {@code status.executorState} of a
+   * Spark application, like {@code --max-tracked-executor-per-app} of the Kubeflow Spark Operator.
+   * It bounds by executor id, not by the number of running executors: Spark never reuses an id
+   * within an application, so a long-running application which replaces executors stops recording
+   * new ones once their ids pass it. A non-positive value records every executor.
+   */
+  public static final ConfigOption<Integer> MAX_TRACKED_EXECUTOR_PER_APP =
+      ConfigOption.<Integer>builder()
+          .key("spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp")
+          .enableDynamicOverride(true)
+          .description(
+              "The highest executor id which the operator records in the status.executorState "
+                  + "of a Spark application, like --max-tracked-executor-per-app of the Kubeflow "
+                  + "Spark Operator. It bounds by executor id, not by the number of running "
+                  + "executors: Spark never reuses an id within an application, so a "
+                  + "long-running application which replaces executors stops recording new ones "
+                  + "once their ids pass it. A non-positive value records every executor.")
+          .typeParameterClass(Integer.class)
+          .defaultValue(1000)
+          .build();
+
+  /**
    * Grace period (in seconds) the operator waits for the pod informer cache to catch up
    * after the driver pod is observed missing, before doing a live API verification. Brief
    * cache lag during pod creation/update event propagation is normal; only sustained absence

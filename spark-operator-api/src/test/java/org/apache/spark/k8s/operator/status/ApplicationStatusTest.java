@@ -952,4 +952,81 @@ class ApplicationStatusTest {
                 ApplicationState.class)
             .getSuspendReason());
   }
+
+  private static final Map<String, ExecutorState> EXECUTORS =
+      Map.of("app-exec-1", ExecutorState.RUNNING, "app-exec-2", ExecutorState.PENDING);
+
+  private static ApplicationStatus runningWithExecutors() {
+    return new ApplicationStatus()
+        .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, ""))
+        .withExecutorState(EXECUTORS);
+  }
+
+  @Test
+  void testExecutorStateIsEmptyByDefault() {
+    assertTrue(new ApplicationStatus().getExecutorState().isEmpty());
+  }
+
+  @Test
+  void testWithExecutorStateKeepsTheRestOfTheStatus() {
+    ApplicationStatus status =
+        new ApplicationStatus()
+            .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, ""));
+    ApplicationStatus withExecutors = status.withExecutorState(EXECUTORS);
+    assertEquals(EXECUTORS, withExecutors.getExecutorState());
+    assertEquals(status.getCurrentState(), withExecutors.getCurrentState());
+    assertEquals(status.getStateTransitionHistory(), withExecutors.getStateTransitionHistory());
+    assertEquals(status.getCurrentAttemptSummary(), withExecutors.getCurrentAttemptSummary());
+    assertEquals(status, withExecutors.withExecutorState(Map.of()));
+  }
+
+  @Test
+  void testExecutorStateIsKeptUntilTheAttemptEnds() {
+    ApplicationStatus succeeded = runningWithExecutors().appendNewState(
+        new ApplicationState(Succeeded, ""));
+    assertEquals(EXECUTORS, succeeded.getExecutorState());
+
+    RestartConfig noRetryConfig = new RestartConfig();
+    noRetryConfig.setRestartPolicy(RestartPolicy.Never);
+    ApplicationStatus released = succeeded.terminateOrRestart(noRetryConfig, "", false);
+    assertEquals(ApplicationStateSummary.ResourceReleased,
+        released.getCurrentState().getCurrentStateSummary());
+    assertEquals(EXECUTORS, released.getExecutorState());
+  }
+
+  @Test
+  void testExecutorStateStartsEmptyWithTheNextAttempt() {
+    RestartConfig alwaysRetryConfig = new RestartConfig();
+    alwaysRetryConfig.setRestartPolicy(RestartPolicy.Always);
+    alwaysRetryConfig.setMaxRestartAttempts(1L);
+    ApplicationStatus failed = runningWithExecutors().appendNewState(
+        new ApplicationState(ApplicationStateSummary.Failed, ""));
+    for (boolean trimStateTransitionHistory : new boolean[] {false, true}) {
+      ApplicationStatus restarted =
+          failed.terminateOrRestart(alwaysRetryConfig, "", trimStateTransitionHistory);
+      assertEquals(ApplicationStateSummary.ScheduledToRestart,
+          restarted.getCurrentState().getCurrentStateSummary());
+      assertTrue(restarted.getExecutorState().isEmpty());
+    }
+  }
+
+  @Test
+  void testExecutorStateStartsEmptyWhenSuspended() {
+    ApplicationStatus suspended = runningWithExecutors().appendNewState(
+        new ApplicationState(ApplicationStateSummary.Suspended, ""));
+    assertTrue(suspended.getExecutorState().isEmpty());
+    assertTrue(suspended.resume("", true).getExecutorState().isEmpty());
+  }
+
+  @Test
+  void testExecutorStateJsonRoundTrip() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    assertFalse(mapper.writeValueAsString(new ApplicationStatus()).contains("executorState"));
+
+    ApplicationStatus status = runningWithExecutors();
+    String json = mapper.writeValueAsString(status);
+    assertTrue(json.contains(
+        "\"executorState\":{\"app-exec-1\":\"RUNNING\",\"app-exec-2\":\"PENDING\"}"));
+    assertEquals(EXECUTORS, mapper.readValue(json, ApplicationStatus.class).getExecutorState());
+  }
 }
