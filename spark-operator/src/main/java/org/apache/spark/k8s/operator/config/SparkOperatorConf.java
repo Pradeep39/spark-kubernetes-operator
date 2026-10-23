@@ -222,6 +222,26 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * The maximum number of executors which the operator records in the {@code status.executorState}
+   * of a Spark application. Beyond it, the executors which are gone are evicted first, oldest
+   * first, so that a long-running application keeps recording its new executors. A non-positive
+   * value records every executor.
+   */
+  public static final ConfigOption<Integer> MAX_TRACKED_EXECUTOR_PER_APP =
+      ConfigOption.<Integer>builder()
+          .key("spark.kubernetes.operator.reconciler.maxTrackedExecutorPerApp")
+          .enableDynamicOverride(true)
+          .description(
+              "The maximum number of executors which the operator records in the "
+                  + "status.executorState of a Spark application, to keep the status within the "
+                  + "size limit of a Kubernetes object. Beyond it, the executors which are gone "
+                  + "are evicted first, oldest first, and then the newest pending or running "
+                  + "executors, with a warning. A non-positive value records every executor.")
+          .typeParameterClass(Integer.class)
+          .defaultValue(1000)
+          .build();
+
+  /**
    * Grace period (in seconds) the operator waits for the pod informer cache to catch up
    * after the driver pod is observed missing, before doing a live API verification. Brief
    * cache lag during pod creation/update event propagation is normal; only sustained absence
