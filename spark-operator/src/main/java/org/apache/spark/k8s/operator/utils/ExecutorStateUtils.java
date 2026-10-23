@@ -30,8 +30,8 @@ import java.util.TreeMap;
 import io.fabric8.kubernetes.api.model.Pod;
 
 import org.apache.spark.k8s.operator.Constants;
-import org.apache.spark.k8s.operator.SparkApplication;
 import org.apache.spark.k8s.operator.SparkAppSubmissionWorker;
+import org.apache.spark.k8s.operator.SparkApplication;
 import org.apache.spark.k8s.operator.status.ApplicationState;
 import org.apache.spark.k8s.operator.status.ApplicationStateSummary;
 import org.apache.spark.k8s.operator.status.ApplicationStatus;
