@@ -222,6 +222,26 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * Whether the operator records the state of each executor in {@code status.executorState}. The
+   * active executor count and the highest executor ID are recorded either way, and change less
+   * often, so disabling the executor states reduces the status writes of an application.
+   */
+  public static final ConfigOption<Boolean> EXECUTOR_STATE_ENABLED =
+      ConfigOption.<Boolean>builder()
+          .key("spark.kubernetes.operator.reconciler.executorStateEnabled")
+          .enableDynamicOverride(true)
+          .description(
+              "Whether the operator records the state of each executor of a Spark application in "
+                  + "its status.executorState. Its status.activeExecutors and "
+                  + "status.maxExecutorId are recorded either way. They change only when an "
+                  + "executor is added or removed, while an executor state also changes when an "
+                  + "executor starts running, completes or fails, so disabling the executor "
+                  + "states writes the status of an application less often.")
+          .typeParameterClass(Boolean.class)
+          .defaultValue(true)
+          .build();
+
+  /**
    * The maximum number of executors which the operator records in the {@code status.executorState}
    * of a Spark application. Beyond it, the executors which are gone are evicted first, oldest
    * first, so that a long-running application keeps recording its new executors. A non-positive

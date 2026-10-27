@@ -20,6 +20,7 @@
 package org.apache.spark.k8s.operator.reconciler;
 
 import static org.apache.spark.k8s.operator.Constants.LABEL_SPARK_APPLICATION_NAME;
+import static org.apache.spark.k8s.operator.config.SparkOperatorConf.EXECUTOR_STATE_ENABLED;
 import static org.apache.spark.k8s.operator.config.SparkOperatorConf.KUEUE_ENABLED;
 import static org.apache.spark.k8s.operator.reconciler.ReconcileProgress.completeAndDefaultRequeue;
 import static org.apache.spark.k8s.operator.utils.Utils.basicLabelSecondaryToPrimaryMapper;
@@ -179,7 +180,9 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
                 // reconciled, so its last state, which the delete event carries, is remembered.
                 .withOnDeleteFilter(
                     (pod, deletedFinalStateUnknown) -> {
-                      deletedExecutorPods.record(pod);
+                      if (EXECUTOR_STATE_ENABLED.getValue()) {
+                        deletedExecutorPods.record(pod);
+                      }
                       return true;
                     })
                 .build(),

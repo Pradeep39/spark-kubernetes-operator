@@ -279,4 +279,43 @@ class AppExecutorStateStepTest {
       setConfigKey(SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP, 1000);
     }
   }
+
+  @Test
+  void recordsOnlyTheCountAndTheIdWithoutExecutorStates() {
+    setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);
+    try {
+      when(mockContext.getExecutorsForApplication())
+          .thenReturn(Set.of(executorPod("app-exec-1", "1", "Pending")));
+      step.reconcile(mockContext, mockRecorder);
+      assertTrue(app.getStatus().getExecutorState().isEmpty());
+      assertEquals(1, app.getStatus().getActiveExecutors());
+      assertEquals(1L, app.getStatus().getMaxExecutorId());
+
+      // The executor starts running: nothing the status records changed, so it is not written
+      when(mockContext.getExecutorsForApplication())
+          .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+      step.reconcile(mockContext, mockRecorder);
+      verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    } finally {
+      setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
+    }
+  }
+
+  @Test
+  void clearsTheExecutorStatesOnceTheyAreDisabled() {
+    app.setStatus(
+        app.getStatus()
+            .withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING))
+            .withActiveExecutors(1, 1L));
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+    setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);
+    try {
+      step.reconcile(mockContext, mockRecorder);
+      assertTrue(app.getStatus().getExecutorState().isEmpty());
+      assertEquals(1, app.getStatus().getActiveExecutors());
+    } finally {
+      setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
+    }
+  }
 }

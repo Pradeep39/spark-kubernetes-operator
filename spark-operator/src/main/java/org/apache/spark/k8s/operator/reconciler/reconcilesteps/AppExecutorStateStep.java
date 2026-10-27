@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.SortedMap;
+import java.util.TreeMap;
 
 import io.fabric8.kubernetes.api.model.Pod;
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
@@ -80,12 +81,15 @@ public final class AppExecutorStateStep extends AppReconcileStep {
       return proceed();
     }
     Collection<Pod> executorPods = context.getExecutorsForApplication();
+    // Without executor states, the map is left empty, which also clears one recorded before
     SortedMap<String, ExecutorState> executorState =
-        ExecutorStateUtils.observe(
-            app,
-            executorPods,
-            deletedExecutors,
-            SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP.getValue());
+        SparkOperatorConf.EXECUTOR_STATE_ENABLED.getValue()
+            ? ExecutorStateUtils.observe(
+                app,
+                executorPods,
+                deletedExecutors,
+                SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP.getValue())
+            : new TreeMap<>();
     ApplicationStatus status = app.getStatus();
     Integer activeExecutors = activeExecutors(status, executorPods, app);
     Long maxExecutorId = maxExecutorId(status, executorPods, app);

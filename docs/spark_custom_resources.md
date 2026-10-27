@@ -337,6 +337,20 @@ over with the next attempt and when the application is suspended, like `status.e
 are computed from the same executor pods in the same reconciliation, so they add no requests to the
 API server, and the status is written only when one of them or an executor state changed.
 
+An executor state also changes when an executor starts running, completes or fails, while
+`activeExecutors` and `maxExecutorId` change only when an executor is added or removed. A scheduler
+which charges executors from `activeExecutors` does not need the executor states, so to write the
+status of applications less often, e.g. when many applications scale at once, disable them:
+
+```yaml
+operatorConfiguration:
+  spark-operator.properties: |+
+    spark.kubernetes.operator.reconciler.executorStateEnabled=false
+```
+
+`status.executorState` is then left empty, and cleared if it was recorded before, while
+`status.activeExecutors` and `status.maxExecutorId` are recorded as before.
+
 ## Configure the Tolerations for SparkApplication
 
 ### Restart
