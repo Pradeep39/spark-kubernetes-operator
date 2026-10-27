@@ -65,6 +65,18 @@ public class ApplicationStatus
   final SortedMap<String, ExecutorState> executorState;
 
   /**
+   * The number of executors that Spark Dynamic Allocation targets for the current attempt, as the
+   * driver reports it: the executors the application keeps plus those it is requesting, before
+   * their pods exist. Schedulers such as Kueue can size the application from it ahead of the
+   * executor pods. It is recorded only while the driver is ready and the operator polls it, see
+   * {@code spark.kubernetes.operator.reconciler.dynamicAllocationTargetPollIntervalSeconds}, and is
+   * cleared when the driver stops being ready.
+   *
+   * @since 1.1.0
+   */
+  @Getter final Integer targetExecutors;
+
+  /**
    * Constructs a new, empty ApplicationStatus.
    *
    * @since 0.1.0
@@ -72,6 +84,7 @@ public class ApplicationStatus
   public ApplicationStatus() {
     super(new ApplicationState(), new ApplicationAttemptSummary());
     this.executorState = new TreeMap<>();
+    this.targetExecutors = null;
   }
 
   /**
@@ -101,15 +114,44 @@ public class ApplicationStatus
    * @param executorState The state of each executor of the current attempt by pod name, or null.
    * @since 1.1.0
    */
+  public ApplicationStatus(
+      ApplicationState currentState,
+      Map<Long, ApplicationState> stateTransitionHistory,
+      ApplicationAttemptSummary previousAttemptSummary,
+      ApplicationAttemptSummary currentAttemptSummary,
+      Map<String, ExecutorState> executorState) {
+    this(
+        currentState,
+        stateTransitionHistory,
+        previousAttemptSummary,
+        currentAttemptSummary,
+        executorState,
+        null);
+  }
+
+  /**
+   * Constructs a new ApplicationStatus with the given state, history, executor states and Dynamic
+   * Allocation target.
+   *
+   * @param currentState The current state of the application.
+   * @param stateTransitionHistory The history of state transitions.
+   * @param previousAttemptSummary Summary of the previous application attempt.
+   * @param currentAttemptSummary Summary of the current application attempt.
+   * @param executorState The state of each executor of the current attempt by pod name, or null.
+   * @param targetExecutors The Dynamic Allocation target of the current attempt, or null.
+   * @since 1.1.0
+   */
   @JsonCreator
   public ApplicationStatus(
       @JsonProperty("currentState") ApplicationState currentState,
       @JsonProperty("stateTransitionHistory") Map<Long, ApplicationState> stateTransitionHistory,
       @JsonProperty("previousAttemptSummary") ApplicationAttemptSummary previousAttemptSummary,
       @JsonProperty("currentAttemptSummary") ApplicationAttemptSummary currentAttemptSummary,
-      @JsonProperty("executorState") Map<String, ExecutorState> executorState) {
+      @JsonProperty("executorState") Map<String, ExecutorState> executorState,
+      @JsonProperty("targetExecutors") Integer targetExecutors) {
     super(currentState, stateTransitionHistory, previousAttemptSummary, currentAttemptSummary);
     this.executorState = executorState == null ? new TreeMap<>() : new TreeMap<>(executorState);
+    this.targetExecutors = targetExecutors;
   }
 
   /**
@@ -125,7 +167,26 @@ public class ApplicationStatus
         stateTransitionHistory,
         previousAttemptSummary,
         currentAttemptSummary,
-        newExecutorState);
+        newExecutorState,
+        targetExecutors);
+  }
+
+  /**
+   * Returns a copy of this status with the given Dynamic Allocation target, and everything else
+   * unchanged.
+   *
+   * @param newTargetExecutors The Dynamic Allocation target of the current attempt, or null.
+   * @return A new ApplicationStatus object with the given target.
+   * @since 1.1.0
+   */
+  public ApplicationStatus withTargetExecutors(Integer newTargetExecutors) {
+    return new ApplicationStatus(
+        currentState,
+        stateTransitionHistory,
+        previousAttemptSummary,
+        currentAttemptSummary,
+        executorState,
+        newTargetExecutors);
   }
 
   /**
@@ -138,12 +199,14 @@ public class ApplicationStatus
   public ApplicationStatus appendNewState(ApplicationState state) {
     // A suspended application releases its executors, so their states start over, as on resume.
     boolean suspended = ApplicationStateSummary.Suspended == state.getCurrentStateSummary();
+    // The target is the running driver's, so it is dropped once the driver is no longer ready.
     return new ApplicationStatus(
         state,
         createUpdatedHistoryWithNewState(state),
         previousAttemptSummary,
         currentAttemptSummary,
-        suspended ? null : executorState);
+        suspended ? null : executorState,
+        state.getCurrentStateSummary().isDriverReady() ? targetExecutors : null);
   }
 
   /**

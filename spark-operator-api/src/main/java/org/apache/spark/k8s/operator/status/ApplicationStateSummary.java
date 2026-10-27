@@ -154,6 +154,19 @@ public enum ApplicationStateSummary implements BaseStateSummary {
   }
 
   /**
+   * Checks if the driver of the current attempt is ready, i.e. its SparkContext is up and it may
+   * add or remove executors.
+   *
+   * @return True if the state is DriverReady or a later running state, before the stopping
+   *     states, false otherwise.
+   * @since 1.1.0
+   */
+  public boolean isDriverReady() {
+    return DriverReady.ordinal() <= this.ordinal()
+        && this.ordinal() <= RunningWithBelowThresholdExecutors.ordinal();
+  }
+
+  /**
    * Checks if the application is in the `terminated` state which means no further actions are
    * needed to reconcile it.
    *

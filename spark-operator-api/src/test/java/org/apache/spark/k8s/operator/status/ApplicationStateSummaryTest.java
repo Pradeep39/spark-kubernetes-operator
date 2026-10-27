@@ -57,6 +57,25 @@ class ApplicationStateSummaryTest {
   }
 
   @Test
+  void testIsDriverReady() {
+    assertTrue(ApplicationStateSummary.DriverReady.isDriverReady());
+    assertTrue(ApplicationStateSummary.InitializedBelowThresholdExecutors.isDriverReady());
+    assertTrue(ApplicationStateSummary.RunningHealthy.isDriverReady());
+    assertTrue(ApplicationStateSummary.RunningWithPartialCapacity.isDriverReady());
+    assertTrue(ApplicationStateSummary.RunningWithBelowThresholdExecutors.isDriverReady());
+
+    assertFalse(ApplicationStateSummary.Submitted.isDriverReady());
+    assertFalse(ApplicationStateSummary.ScheduledToRestart.isDriverReady());
+    assertFalse(ApplicationStateSummary.DriverRequested.isDriverReady());
+    assertFalse(ApplicationStateSummary.DriverStarted.isDriverReady());
+    assertFalse(ApplicationStateSummary.DriverReadyTimedOut.isDriverReady());
+    assertFalse(ApplicationStateSummary.Succeeded.isDriverReady());
+    assertFalse(ApplicationStateSummary.Failed.isDriverReady());
+    assertFalse(ApplicationStateSummary.ResourceReleased.isDriverReady());
+    assertFalse(ApplicationStateSummary.Suspended.isDriverReady());
+  }
+
+  @Test
   void testIsStopping() {
     // States after RunningWithBelowThresholdExecutors but not terminated
     assertTrue(ApplicationStateSummary.DriverStartTimedOut.isStopping());

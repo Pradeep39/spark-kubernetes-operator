@@ -319,6 +319,45 @@ operatorConfiguration:
 Both properties are read at start-up, so the operator has to be restarted to apply them. A
 non-positive `maxLoopForPeriod` disables the rate limiter.
 
+## Dynamic Allocation Target
+
+Spark Operator can also record the number of executors that Spark Dynamic Allocation targets for
+the current attempt in `status.targetExecutors`. It counts the executors the application keeps plus
+those it is requesting, and it changes as soon as Dynamic Allocation decides to scale, before the
+driver creates or deletes the executor pods, so a scheduler such as Kueue can size the application
+ahead of its pods:
+
+```yaml
+status:
+  targetExecutors: 8
+```
+
+The driver publishes the target as the `numberTargetExecutors` gauge of its
+`ExecutorAllocationManager` metrics, and its UI serves the gauges through the metrics servlet. The
+operator reads them from the driver pod, at `http://<driver pod IP>:<spark.ui.port>/metrics/json`
+by default, so Spark and the driver's permissions are unchanged. It is disabled by default. To
+enable it, set the poll interval, e.g. in the Helm chart values:
+
+```yaml
+operatorConfiguration:
+  spark-operator.properties: |+
+    spark.kubernetes.operator.reconciler.dynamicAllocationTargetPollIntervalSeconds=10
+```
+
+The operator then reads the driver of a running application at most once per interval: whenever
+the application is reconciled, which a change of any of its executor pods triggers, and otherwise
+every interval. Only applications with `spark.dynamicAllocation.enabled` set to `true` and an HTTP
+driver UI are read: not with `spark.ui.enabled` set to `false`, with a UI over HTTPS
+(`spark.ssl.ui.enabled`, or `spark.ssl.enabled`), or with `spark.ui.port` set to `0`. A custom
+servlet path in `spark.metrics.conf.driver.sink.servlet.path` or
+`spark.metrics.conf.*.sink.servlet.path` is followed. The operator needs network access to the
+driver pods on the UI port, e.g. through the network policies of the namespace. A driver which does
+not answer within `spark.kubernetes.operator.reconciler.dynamicAllocationTargetPollTimeoutMillis`
+(default 2000), answers with an error, or does not report the gauge leaves the recorded target
+unchanged. The target is recorded only while the driver is ready (`DriverReady` and the running
+states), and is cleared when the driver stops being ready, e.g. when the attempt ends or the
+application is suspended.
+
 ## Configure the Tolerations for SparkApplication
 
 ### Restart

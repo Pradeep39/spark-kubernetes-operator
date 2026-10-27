@@ -1028,4 +1028,68 @@ class ApplicationStatusTest {
         "\"executorState\":{\"app-exec-1\":\"RUNNING\",\"app-exec-2\":\"PENDING\"}"));
     assertEquals(EXECUTORS, mapper.readValue(json, ApplicationStatus.class).getExecutorState());
   }
+
+  @Test
+  void testTargetExecutorsIsUnsetByDefault() {
+    assertNull(new ApplicationStatus().getTargetExecutors());
+    assertNull(runningWithExecutors().getTargetExecutors());
+  }
+
+  @Test
+  void testWithTargetExecutorsKeepsTheRestOfTheStatus() {
+    ApplicationStatus status = runningWithExecutors();
+    ApplicationStatus withTarget = status.withTargetExecutors(7);
+    assertEquals(7, withTarget.getTargetExecutors());
+    assertEquals(EXECUTORS, withTarget.getExecutorState());
+    assertEquals(status.getCurrentState(), withTarget.getCurrentState());
+    assertEquals(status.getStateTransitionHistory(), withTarget.getStateTransitionHistory());
+    assertEquals(status, withTarget.withTargetExecutors(null));
+    // Recording the executor states keeps the target
+    assertEquals(7, withTarget.withExecutorState(Map.of()).getTargetExecutors());
+  }
+
+  @Test
+  void testTargetExecutorsIsKeptWhileTheDriverIsReady() {
+    ApplicationStatus running = runningWithExecutors().withTargetExecutors(7);
+    for (ApplicationStateSummary state :
+        new ApplicationStateSummary[] {
+          ApplicationStateSummary.RunningWithPartialCapacity,
+          ApplicationStateSummary.RunningWithBelowThresholdExecutors,
+          ApplicationStateSummary.RunningHealthy
+        }) {
+      running = running.appendNewState(new ApplicationState(state, ""));
+      assertEquals(7, running.getTargetExecutors());
+    }
+  }
+
+  @Test
+  void testTargetExecutorsIsDroppedWhenTheDriverIsNoLongerReady() {
+    ApplicationStatus running = runningWithExecutors().withTargetExecutors(7);
+    for (ApplicationStateSummary state :
+        new ApplicationStateSummary[] {
+          Succeeded, ApplicationStateSummary.Failed, ApplicationStateSummary.Suspended
+        }) {
+      assertNull(running.appendNewState(new ApplicationState(state, "")).getTargetExecutors());
+    }
+
+    RestartConfig noRetryConfig = new RestartConfig();
+    noRetryConfig.setRestartPolicy(RestartPolicy.Never);
+    ApplicationStatus released =
+        running
+            .appendNewState(new ApplicationState(Succeeded, ""))
+            .terminateOrRestart(noRetryConfig, "", false);
+    assertNull(released.getTargetExecutors());
+  }
+
+  @Test
+  void testTargetExecutorsJsonRoundTrip() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    String json = mapper.writeValueAsString(runningWithExecutors().withTargetExecutors(7));
+    assertTrue(json.contains("\"targetExecutors\":7"));
+    assertEquals(7, mapper.readValue(json, ApplicationStatus.class).getTargetExecutors());
+
+    // An unset target is left out, and a status without one still reads
+    assertFalse(mapper.writeValueAsString(runningWithExecutors()).contains("targetExecutors"));
+    assertNull(mapper.readValue("{}", ApplicationStatus.class).getTargetExecutors());
+  }
 }

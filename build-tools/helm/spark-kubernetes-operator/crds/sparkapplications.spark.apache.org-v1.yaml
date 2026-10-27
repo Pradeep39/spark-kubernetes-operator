@@ -19281,6 +19281,8 @@ spec:
                         type: string
                     type: object
                   type: object
+                targetExecutors:
+                  type: integer
               type: object
           type: object
       served: true

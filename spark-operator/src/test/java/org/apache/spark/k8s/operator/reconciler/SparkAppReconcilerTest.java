@@ -42,6 +42,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -88,6 +89,7 @@ import org.apache.spark.k8s.operator.kueue.v1beta2.Workload;
 import org.apache.spark.k8s.operator.kueue.v1beta2.WorkloadStatus;
 import org.apache.spark.k8s.operator.metrics.healthcheck.SentinelManager;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppCleanUpStep;
+import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppDynamicAllocationTargetStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppExecutorStateStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppReconcileStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppSuspendStep;
@@ -689,6 +691,61 @@ class SparkAppReconcilerTest {
             steps.stream().filter(AppSuspendStep.class::isInstance).count(),
             summary.name());
       }
+    }
+  }
+
+  @Test
+  void dynamicAllocationTargetStepRunsFirstWhileTheDriverIsReady() {
+    for (ApplicationStateSummary summary : ApplicationStateSummary.values()) {
+      app.setStatus(new ApplicationStatus().appendNewState(new ApplicationState(summary, "")));
+      List<Class<?>> steps =
+          reconciler.getReconcileSteps(app).stream().<Class<?>>map(Object::getClass).toList();
+      if (summary.isDriverReady()) {
+        // Before the steps of the state, which may complete the reconciliation
+        assertEquals(
+            AppDynamicAllocationTargetStep.class,
+            steps.get(steps.indexOf(AppCleanUpStep.class) + 1),
+            summary.name());
+      } else {
+        assertFalse(steps.contains(AppDynamicAllocationTargetStep.class), summary.name());
+      }
+    }
+  }
+
+  @Test
+  void requeuesAtThePollIntervalWhileTheTargetIsRead() {
+    app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "true");
+    app.setStatus(
+        new ApplicationStatus()
+            .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, "")));
+    Duration defaultInterval =
+        Duration.ofSeconds(SparkOperatorConf.RECONCILER_INTERVAL_SECONDS.getValue());
+    assertEquals(
+        ReconcileProgress.completeAndDefaultRequeue(), SparkAppReconciler.defaultRequeue(app));
+    try {
+      setConfigKey(SparkOperatorConf.DYNAMIC_ALLOCATION_TARGET_POLL_INTERVAL_SECONDS, 10L);
+      assertEquals(
+          ReconcileProgress.completeAndRequeueAfter(Duration.ofSeconds(10)),
+          SparkAppReconciler.defaultRequeue(app));
+
+      // Not while the driver is not ready
+      app.setStatus(
+          new ApplicationStatus()
+              .appendNewState(new ApplicationState(ApplicationStateSummary.DriverStarted, "")));
+      assertEquals(
+          ReconcileProgress.completeAndDefaultRequeue(), SparkAppReconciler.defaultRequeue(app));
+      app.setStatus(
+          new ApplicationStatus()
+              .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, "")));
+
+      // Never later than the default interval
+      setConfigKey(
+          SparkOperatorConf.DYNAMIC_ALLOCATION_TARGET_POLL_INTERVAL_SECONDS,
+          defaultInterval.toSeconds() + 1);
+      assertEquals(
+          ReconcileProgress.completeAndDefaultRequeue(), SparkAppReconciler.defaultRequeue(app));
+    } finally {
+      setConfigKey(SparkOperatorConf.DYNAMIC_ALLOCATION_TARGET_POLL_INTERVAL_SECONDS, 0L);
     }
   }
 }

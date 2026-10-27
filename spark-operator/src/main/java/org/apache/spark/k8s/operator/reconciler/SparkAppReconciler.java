@@ -22,9 +22,11 @@ package org.apache.spark.k8s.operator.reconciler;
 import static org.apache.spark.k8s.operator.Constants.LABEL_SPARK_APPLICATION_NAME;
 import static org.apache.spark.k8s.operator.config.SparkOperatorConf.KUEUE_ENABLED;
 import static org.apache.spark.k8s.operator.reconciler.ReconcileProgress.completeAndDefaultRequeue;
+import static org.apache.spark.k8s.operator.reconciler.ReconcileProgress.completeAndRequeueAfter;
 import static org.apache.spark.k8s.operator.utils.Utils.basicLabelSecondaryToPrimaryMapper;
 import static org.apache.spark.k8s.operator.utils.Utils.commonResourceLabelsStr;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,6 +48,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.apache.spark.k8s.operator.SparkAppSubmissionWorker;
 import org.apache.spark.k8s.operator.SparkApplication;
+import org.apache.spark.k8s.operator.config.SparkOperatorConf;
 import org.apache.spark.k8s.operator.context.SparkAppContext;
 import org.apache.spark.k8s.operator.kueue.KueueWorkloadUtils;
 import org.apache.spark.k8s.operator.kueue.v1beta2.Workload;
@@ -55,6 +58,7 @@ import org.apache.spark.k8s.operator.reconciler.observers.AppDriverRunningObserv
 import org.apache.spark.k8s.operator.reconciler.observers.AppDriverStartObserver;
 import org.apache.spark.k8s.operator.reconciler.observers.AppDriverTimeoutObserver;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppCleanUpStep;
+import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppDynamicAllocationTargetStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppExecutorStateStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppInitStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppReconcileStep;
@@ -64,6 +68,7 @@ import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppSuspendStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppUnknownStateStep;
 import org.apache.spark.k8s.operator.reconciler.reconcilesteps.AppValidateStep;
 import org.apache.spark.k8s.operator.utils.DeletedExecutorPods;
+import org.apache.spark.k8s.operator.utils.DynamicAllocationTargets;
 import org.apache.spark.k8s.operator.utils.EventUtils;
 import org.apache.spark.k8s.operator.utils.LoggingUtils;
 import org.apache.spark.k8s.operator.utils.ReconcilerUtils;
@@ -84,6 +89,9 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
 
   /** The final states of the deleted executor pods, recorded from the pod informer. */
   private final DeletedExecutorPods deletedExecutorPods = new DeletedExecutorPods();
+
+  /** Reads the Dynamic Allocation targets of the running applications from their drivers. */
+  private final DynamicAllocationTargets dynamicAllocationTargets = new DynamicAllocationTargets();
 
   /**
    * Reconciles the state of a SparkApplication resource.
@@ -113,7 +121,7 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
           return ReconcilerUtils.toUpdateControl(sparkApplication, progress);
         }
       }
-      return ReconcilerUtils.toUpdateControl(sparkApplication, completeAndDefaultRequeue());
+      return ReconcilerUtils.toUpdateControl(sparkApplication, defaultRequeue(sparkApplication));
 
     } finally {
       log.debug("Reconciliation completed.");
@@ -207,6 +215,26 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
   }
 
   /**
+   * Returns the requeue of a reconciliation which completed all its steps: the default interval, or
+   * the Dynamic Allocation target poll interval if it is shorter and the target of the application
+   * is read, so that a target which changes without any pod event is still read.
+   *
+   * @param app The SparkApplication resource.
+   * @return The ReconcileProgress to complete the reconciliation with.
+   */
+  static ReconcileProgress defaultRequeue(final SparkApplication app) {
+    Duration pollInterval = DynamicAllocationTargets.pollInterval();
+    Duration defaultInterval =
+        Duration.ofSeconds(SparkOperatorConf.RECONCILER_INTERVAL_SECONDS.getValue());
+    if (DynamicAllocationTargets.isTracked(app)
+        && app.getStatus().getCurrentState().getCurrentStateSummary().isDriverReady()
+        && pollInterval.compareTo(defaultInterval) < 0) {
+      return completeAndRequeueAfter(pollInterval);
+    }
+    return completeAndDefaultRequeue();
+  }
+
+  /**
    * Returns a list of reconciliation steps based on the current state of the SparkApplication.
    *
    * @param app The SparkApplication resource.
@@ -232,6 +260,7 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
           RunningHealthy,
           RunningWithPartialCapacity,
           RunningWithBelowThresholdExecutors -> {
+        steps.add(new AppDynamicAllocationTargetStep(dynamicAllocationTargets));
         steps.add(new AppRunningStep());
         steps.add(new AppResourceObserveStep(List.of(new AppDriverRunningObserver())));
         steps.add(new AppResourceObserveStep(List.of(new AppDriverTimeoutObserver())));
@@ -285,6 +314,7 @@ public class SparkAppReconciler implements Reconciler<SparkApplication>, Cleaner
     }
     sparkAppStatusRecorder.removeCachedStatus(sparkApplication);
     deletedExecutorPods.clear(ResourceID.fromResource(sparkApplication));
+    dynamicAllocationTargets.forget(ResourceID.fromResource(sparkApplication));
     return DeleteControl.defaultDelete();
   }
 }

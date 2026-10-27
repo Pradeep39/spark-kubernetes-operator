@@ -242,6 +242,40 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * Interval (in seconds) at which the operator reads the Spark Dynamic Allocation target of a
+   * running application from its driver and records it in {@code status.targetExecutors}. A
+   * non-positive value disables it.
+   */
+  public static final ConfigOption<Long> DYNAMIC_ALLOCATION_TARGET_POLL_INTERVAL_SECONDS =
+      ConfigOption.<Long>builder()
+          .key("spark.kubernetes.operator.reconciler.dynamicAllocationTargetPollIntervalSeconds")
+          .enableDynamicOverride(true)
+          .description(
+              "Interval (in seconds) at which the operator reads the Spark Dynamic Allocation "
+                  + "target (numberTargetExecutors) of a running application from the metrics "
+                  + "servlet of its driver UI, and records it in status.targetExecutors, so that "
+                  + "schedulers such as Kueue can size the application before its executor pods "
+                  + "exist. Only applications with spark.dynamicAllocation.enabled and an HTTP "
+                  + "driver UI are polled, and the operator needs network access to the driver "
+                  + "pods. A non-positive value disables it.")
+          .typeParameterClass(Long.class)
+          .defaultValue(0L)
+          .build();
+
+  /** Timeout (in milliseconds) of reading the Dynamic Allocation target from a driver. */
+  public static final ConfigOption<Long> DYNAMIC_ALLOCATION_TARGET_POLL_TIMEOUT_MILLIS =
+      ConfigOption.<Long>builder()
+          .key("spark.kubernetes.operator.reconciler.dynamicAllocationTargetPollTimeoutMillis")
+          .enableDynamicOverride(true)
+          .description(
+              "Timeout (in milliseconds) of connecting to the driver and reading its metrics, "
+                  + "when reading the Spark Dynamic Allocation target of an application. The "
+                  + "recorded target is kept when the driver does not answer in time.")
+          .typeParameterClass(Long.class)
+          .defaultValue(2000L)
+          .build();
+
+  /**
    * Grace period (in seconds) the operator waits for the pod informer cache to catch up
    * after the driver pod is observed missing, before doing a live API verification. Brief
    * cache lag during pod creation/update event propagation is normal; only sustained absence
