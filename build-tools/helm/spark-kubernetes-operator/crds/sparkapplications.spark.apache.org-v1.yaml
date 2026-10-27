@@ -16521,6 +16521,8 @@ spec:
               type: object
             status:
               properties:
+                activeExecutors:
+                  type: integer
                 currentAttemptSummary:
                   properties:
                     attemptInfo:
@@ -17905,6 +17907,8 @@ spec:
                       - UNKNOWN
                     type: string
                   type: object
+                maxExecutorId:
+                  type: integer
                 previousAttemptSummary:
                   properties:
                     attemptInfo:

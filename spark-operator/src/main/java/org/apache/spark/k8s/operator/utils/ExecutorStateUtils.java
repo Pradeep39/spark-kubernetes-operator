@@ -26,6 +26,7 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
@@ -229,6 +230,86 @@ public final class ExecutorStateUtils {
           app.getMetadata().getNamespace(),
           app.getMetadata().getName(),
           maxTrackedExecutorPerApp);
+    }
+  }
+
+  /**
+   * Returns the number of active executors of the current attempt, for its {@code
+   * status.activeExecutors}: its executor pods which are pending, including those held by a
+   * scheduling gate, or running, including those being deleted. It is counted from the pods, so it
+   * does not depend on the bound of the executor states.
+   *
+   * @param app The Spark application.
+   * @param executorPods The executor pods of the application, of any attempt.
+   * @return The number of active executors of the current attempt.
+   */
+  public static int countActiveExecutors(
+      final SparkApplication app, final Collection<Pod> executorPods) {
+    String appId = currentAttemptAppId(app);
+    int active = 0;
+    for (Pod pod : executorPods) {
+      if (appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))) {
+        ExecutorState state = fromPodPhase(pod);
+        if (ExecutorState.PENDING == state || ExecutorState.RUNNING == state) {
+          active++;
+        }
+      }
+    }
+    return active;
+  }
+
+  /**
+   * Returns the highest executor ID among the executor pods of the current attempt, from their
+   * {@link Constants#LABEL_SPARK_EXECUTOR_ID} label, or the trailing digits of their name for a pod
+   * without a valid label.
+   *
+   * @param app The Spark application.
+   * @param executorPods The executor pods of the application, of any attempt.
+   * @return The highest executor ID, or empty if no executor pod of the current attempt has one.
+   */
+  public static OptionalLong highestExecutorId(
+      final SparkApplication app, final Collection<Pod> executorPods) {
+    String appId = currentAttemptAppId(app);
+    OptionalLong highest = OptionalLong.empty();
+    for (Pod pod : executorPods) {
+      if (!appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))) {
+        continue;
+      }
+      OptionalLong id = executorId(pod);
+      if (id.isPresent() && (highest.isEmpty() || id.getAsLong() > highest.getAsLong())) {
+        highest = id;
+      }
+    }
+    return highest;
+  }
+
+  /**
+   * Returns the executor ID of an executor pod: its {@link Constants#LABEL_SPARK_EXECUTOR_ID}
+   * label, or the trailing digits of its name if the label is missing or not a positive number.
+   *
+   * @param pod The executor pod.
+   * @return The executor ID, or empty if neither is a positive number.
+   */
+  static OptionalLong executorId(final Pod pod) {
+    OptionalLong fromLabel =
+        positiveId(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_EXECUTOR_ID));
+    if (fromLabel.isPresent()) {
+      return fromLabel;
+    }
+    long id = executorIdFromPodName(pod.getMetadata().getName());
+    // 0 is a name without trailing digits, and Long.MAX_VALUE one whose digits overflow
+    return id > 0 && id < Long.MAX_VALUE ? OptionalLong.of(id) : OptionalLong.empty();
+  }
+
+  private static OptionalLong positiveId(final String value) {
+    if (value == null) {
+      return OptionalLong.empty();
+    }
+    try {
+      long id = Long.parseLong(value.trim());
+      return id > 0 ? OptionalLong.of(id) : OptionalLong.empty();
+    } catch (NumberFormatException e) {
+      return OptionalLong.empty();
     }
   }
 

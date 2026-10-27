@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
@@ -43,7 +44,6 @@ import org.apache.spark.k8s.operator.status.ApplicationStatus;
 import org.apache.spark.k8s.operator.status.ExecutorState;
 
 class ExecutorStateUtilsTest {
-  private static final String SPARK_EXECUTOR_ID_LABEL = "spark-exec-id";
 
   private SparkApplication app;
 
@@ -66,7 +66,7 @@ class ExecutorStateUtilsTest {
     if (executorId != null) {
       builder
           .editMetadata()
-          .addToLabels(SPARK_EXECUTOR_ID_LABEL, executorId)
+          .addToLabels(Constants.LABEL_SPARK_EXECUTOR_ID, executorId)
           .endMetadata();
     }
     if (phase != null) {
@@ -366,5 +366,56 @@ class ExecutorStateUtilsTest {
     assertFalse(ExecutorStateUtils.hasSucceeded(app.getStatus()));
     setState(ApplicationStateSummary.Succeeded, Map.of());
     assertTrue(ExecutorStateUtils.hasSucceeded(app.getStatus()));
+  }
+
+  @Test
+  void countsThePendingAndRunningExecutorPodsOfTheCurrentAttempt() {
+    List<Pod> pods =
+        List.of(
+            currentExecutorPod("app-exec-1", "1", "Running"),
+            currentExecutorPod("app-exec-2", "2", "Pending"),
+            currentExecutorPod("app-exec-3", "3", "Succeeded"),
+            currentExecutorPod("app-exec-4", "4", "Failed"),
+            currentExecutorPod("app-exec-5", "5", "Unknown"),
+            currentExecutorPod("app-exec-6", "6", null),
+            executorPod("app-exec-7", "sentinel-previous", "7", "Running"));
+    assertEquals(2, ExecutorStateUtils.countActiveExecutors(app, pods));
+    assertEquals(0, ExecutorStateUtils.countActiveExecutors(app, List.of()));
+  }
+
+  @Test
+  void findsTheHighestExecutorIdOfTheCurrentAttempt() {
+    List<Pod> pods =
+        List.of(
+            currentExecutorPod("app-exec-3", "3", "Running"),
+            currentExecutorPod("app-exec-12", "12", "Succeeded"),
+            executorPod("app-exec-40", "sentinel-previous", "40", "Running"));
+    assertEquals(OptionalLong.of(12), ExecutorStateUtils.highestExecutorId(app, pods));
+    assertEquals(OptionalLong.empty(), ExecutorStateUtils.highestExecutorId(app, List.of()));
+  }
+
+  @Test
+  void readsTheExecutorIdFromTheLabelThenThePodName() {
+    assertEquals(
+        OptionalLong.of(7),
+        ExecutorStateUtils.executorId(currentExecutorPod("app-exec-9", "7", "Running")));
+    // A missing or invalid label falls back to the trailing digits of the pod name
+    assertEquals(
+        OptionalLong.of(9),
+        ExecutorStateUtils.executorId(currentExecutorPod("app-exec-9", null, "Running")));
+    assertEquals(
+        OptionalLong.of(9),
+        ExecutorStateUtils.executorId(currentExecutorPod("app-exec-9", "x", "Running")));
+    assertEquals(
+        OptionalLong.of(9),
+        ExecutorStateUtils.executorId(currentExecutorPod("app-exec-9", "0", "Running")));
+    // A name without trailing digits or with an overflowing number has no id
+    assertEquals(
+        OptionalLong.empty(),
+        ExecutorStateUtils.executorId(currentExecutorPod("app-exec", null, "Running")));
+    assertEquals(
+        OptionalLong.empty(),
+        ExecutorStateUtils.executorId(
+            currentExecutorPod("app-exec-99999999999999999999", null, "Running")));
   }
 }

@@ -22,8 +22,11 @@ package org.apache.spark.k8s.operator.reconciler.reconcilesteps;
 import static org.apache.spark.k8s.operator.reconciler.ReconcileProgress.proceed;
 
 import java.util.Collection;
+import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.SortedMap;
 
+import io.fabric8.kubernetes.api.model.Pod;
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,14 +36,17 @@ import org.apache.spark.k8s.operator.config.SparkOperatorConf;
 import org.apache.spark.k8s.operator.context.SparkAppContext;
 import org.apache.spark.k8s.operator.reconciler.ReconcileProgress;
 import org.apache.spark.k8s.operator.status.ApplicationStateSummary;
+import org.apache.spark.k8s.operator.status.ApplicationStatus;
 import org.apache.spark.k8s.operator.status.ExecutorState;
 import org.apache.spark.k8s.operator.utils.DeletedExecutorPods;
 import org.apache.spark.k8s.operator.utils.ExecutorStateUtils;
 import org.apache.spark.k8s.operator.utils.SparkAppStatusRecorder;
 
 /**
- * Records the state of each executor of the application in its {@code status.executorState}, which
- * schedulers such as Kueue read to follow Spark Dynamic Allocation. The executor pods come from the
+ * Records the state of each executor of the application in its {@code status.executorState}, and
+ * the number of its active executors and its highest executor ID in {@code status.activeExecutors}
+ * and {@code status.maxExecutorId}, which schedulers such as Kueue read to follow Spark Dynamic
+ * Allocation. The executor pods come from the
  * informer of the
  * application's pods, so a change of an executor pod reconciles the application and is recorded
  * here. The final states of the executor pods which were deleted since come from {@link
@@ -73,24 +79,67 @@ public final class AppExecutorStateStep extends AppReconcileStep {
       deletedExecutorPods.remove(appId, deletedExecutors);
       return proceed();
     }
+    Collection<Pod> executorPods = context.getExecutorsForApplication();
     SortedMap<String, ExecutorState> executorState =
         ExecutorStateUtils.observe(
             app,
-            context.getExecutorsForApplication(),
+            executorPods,
             deletedExecutors,
             SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP.getValue());
-    if (executorState.equals(app.getStatus().getExecutorState())) {
+    ApplicationStatus status = app.getStatus();
+    Integer activeExecutors = activeExecutors(status, executorPods, app);
+    Long maxExecutorId = maxExecutorId(status, executorPods, app);
+    if (executorState.equals(status.getExecutorState())
+        && Objects.equals(activeExecutors, status.getActiveExecutors())
+        && Objects.equals(maxExecutorId, status.getMaxExecutorId())) {
       deletedExecutorPods.remove(appId, deletedExecutors);
       return proceed();
     }
-    log.debug("Executor states changed to {}", executorState);
+    log.debug(
+        "Executor states changed to {}, {} active, highest executor ID {}",
+        executorState,
+        activeExecutors,
+        maxExecutorId);
     ReconcileProgress progress =
         attemptStatusUpdate(
-            context, statusRecorder, app.getStatus().withExecutorState(executorState), proceed());
+            context,
+            statusRecorder,
+            status
+                .withExecutorState(executorState)
+                .withActiveExecutors(activeExecutors, maxExecutorId),
+            proceed());
     // Kept for the next reconciliation if the status could not be written
     if (!progress.isCompleted()) {
       deletedExecutorPods.remove(appId, deletedExecutors);
     }
     return progress;
+  }
+
+  /**
+   * Returns the number of active executors of the current attempt, or null while the attempt never
+   * had any, so that an application without executors is not written to.
+   */
+  private static Integer activeExecutors(
+      final ApplicationStatus status,
+      final Collection<Pod> executorPods,
+      final SparkApplication app) {
+    int active = ExecutorStateUtils.countActiveExecutors(app, executorPods);
+    return active == 0 && status.getActiveExecutors() == null ? null : active;
+  }
+
+  /**
+   * Returns the highest executor ID of the current attempt so far: the higher of the recorded one
+   * and the highest of the executor pods, which never decreases when executors are removed.
+   */
+  private static Long maxExecutorId(
+      final ApplicationStatus status,
+      final Collection<Pod> executorPods,
+      final SparkApplication app) {
+    OptionalLong observed = ExecutorStateUtils.highestExecutorId(app, executorPods);
+    Long recorded = status.getMaxExecutorId();
+    if (observed.isEmpty()) {
+      return recorded;
+    }
+    return recorded == null ? observed.getAsLong() : Math.max(recorded, observed.getAsLong());
   }
 }

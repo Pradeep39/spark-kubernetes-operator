@@ -1028,4 +1028,84 @@ class ApplicationStatusTest {
         "\"executorState\":{\"app-exec-1\":\"RUNNING\",\"app-exec-2\":\"PENDING\"}"));
     assertEquals(EXECUTORS, mapper.readValue(json, ApplicationStatus.class).getExecutorState());
   }
+
+  @Test
+  void testActiveExecutorsAndMaxExecutorIdAreUnsetByDefault() {
+    assertNull(new ApplicationStatus().getActiveExecutors());
+    assertNull(new ApplicationStatus().getMaxExecutorId());
+    assertNull(runningWithExecutors().getActiveExecutors());
+  }
+
+  @Test
+  void testWithActiveExecutorsKeepsTheRestOfTheStatus() {
+    ApplicationStatus status = runningWithExecutors();
+    ApplicationStatus withCount = status.withActiveExecutors(2, 7L);
+    assertEquals(2, withCount.getActiveExecutors());
+    assertEquals(7L, withCount.getMaxExecutorId());
+    assertEquals(EXECUTORS, withCount.getExecutorState());
+    assertEquals(status.getCurrentState(), withCount.getCurrentState());
+    assertEquals(status.getStateTransitionHistory(), withCount.getStateTransitionHistory());
+    assertEquals(status, withCount.withActiveExecutors(null, null));
+    // Recording the executor states keeps the count and the id
+    ApplicationStatus withStates = withCount.withExecutorState(Map.of());
+    assertEquals(2, withStates.getActiveExecutors());
+    assertEquals(7L, withStates.getMaxExecutorId());
+  }
+
+  @Test
+  void testActiveExecutorsAreKeptUntilTheAttemptEnds() {
+    ApplicationStatus succeeded =
+        runningWithExecutors()
+            .withActiveExecutors(2, 7L)
+            .appendNewState(new ApplicationState(Succeeded, ""));
+    assertEquals(2, succeeded.getActiveExecutors());
+    assertEquals(7L, succeeded.getMaxExecutorId());
+
+    RestartConfig noRetryConfig = new RestartConfig();
+    noRetryConfig.setRestartPolicy(RestartPolicy.Never);
+    ApplicationStatus released = succeeded.terminateOrRestart(noRetryConfig, "", false);
+    assertEquals(2, released.getActiveExecutors());
+    assertEquals(7L, released.getMaxExecutorId());
+  }
+
+  @Test
+  void testActiveExecutorsStartOverWithTheNextAttemptAndOnSuspension() {
+    ApplicationStatus running = runningWithExecutors().withActiveExecutors(2, 7L);
+    ApplicationStatus suspended =
+        running.appendNewState(new ApplicationState(ApplicationStateSummary.Suspended, ""));
+    assertNull(suspended.getActiveExecutors());
+    assertNull(suspended.getMaxExecutorId());
+
+    RestartConfig alwaysRetryConfig = new RestartConfig();
+    alwaysRetryConfig.setRestartPolicy(RestartPolicy.Always);
+    alwaysRetryConfig.setMaxRestartAttempts(1L);
+    ApplicationStatus failed =
+        running.appendNewState(new ApplicationState(ApplicationStateSummary.Failed, ""));
+    for (boolean trimStateTransitionHistory : new boolean[] {false, true}) {
+      ApplicationStatus restarted =
+          failed.terminateOrRestart(alwaysRetryConfig, "", trimStateTransitionHistory);
+      assertEquals(
+          ApplicationStateSummary.ScheduledToRestart,
+          restarted.getCurrentState().getCurrentStateSummary());
+      assertNull(restarted.getActiveExecutors());
+      assertNull(restarted.getMaxExecutorId());
+    }
+  }
+
+  @Test
+  void testActiveExecutorsJsonRoundTrip() throws Exception {
+    ObjectMapper mapper = new ObjectMapper();
+    String json = mapper.writeValueAsString(runningWithExecutors().withActiveExecutors(2, 7L));
+    assertTrue(json.contains("\"activeExecutors\":2"));
+    assertTrue(json.contains("\"maxExecutorId\":7"));
+    ApplicationStatus read = mapper.readValue(json, ApplicationStatus.class);
+    assertEquals(2, read.getActiveExecutors());
+    assertEquals(7L, read.getMaxExecutorId());
+
+    // Unset values are left out, and a status without them still reads
+    String unset = mapper.writeValueAsString(runningWithExecutors());
+    assertFalse(unset.contains("activeExecutors"));
+    assertFalse(unset.contains("maxExecutorId"));
+    assertNull(mapper.readValue("{}", ApplicationStatus.class).getActiveExecutors());
+  }
 }

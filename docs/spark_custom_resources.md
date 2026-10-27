@@ -274,9 +274,11 @@ the executors of an application through these operator-declared states:
 
 ```yaml
 status:
+  activeExecutors: 2
   executorState:
     pi-5f1d8e3a9b2c4f60-exec-1: RUNNING
     pi-5f1d8e3a9b2c4f60-exec-2: PENDING
+  maxExecutorId: 2
 ```
 
 An executor is `PENDING`, `RUNNING`, `COMPLETED` or `FAILED` while its pod is in the phase
@@ -318,6 +320,22 @@ operatorConfiguration:
 
 Both properties are read at start-up, so the operator has to be restarted to apply them. A
 non-positive `maxLoopForPeriod` disables the rate limiter.
+
+Along with the executor states, the operator records two numbers of the current attempt, which
+schedulers such as Kueue use to charge and track the executors of an application:
+
+- `status.activeExecutors` is the number of its executor pods which are pending, including those
+  held by a scheduling gate, or running, including those being deleted. It is counted from the
+  executor pods, not from `status.executorState`, so it stays exact when an application has more
+  pending and running executors than `maxTrackedExecutorPerApp`.
+- `status.maxExecutorId` is the highest executor ID so far, from the `spark-exec-id` label of the
+  executor pods, or the trailing digits of their name. Spark never reuses an executor ID within an
+  attempt, so it grows with every executor added and does not decrease when executors are removed.
+
+Both are unset until the attempt has an executor pod, are kept until the attempt ends, and start
+over with the next attempt and when the application is suspended, like `status.executorState`. They
+are computed from the same executor pods in the same reconciliation, so they add no requests to the
+API server, and the status is written only when one of them or an executor state changed.
 
 ## Configure the Tolerations for SparkApplication
 
