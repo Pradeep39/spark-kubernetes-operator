@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -291,12 +292,15 @@ class AppExecutorStateStepTest {
       assertTrue(app.getStatus().getExecutorState().isEmpty());
       assertEquals(1, app.getStatus().getActiveExecutors());
       assertEquals(1L, app.getStatus().getMaxExecutorId());
+      verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+      clearInvocations(mockRecorder);
 
       // The executor starts running: nothing the status records changed, so it is not written
       when(mockContext.getExecutorsForApplication())
           .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
       step.reconcile(mockContext, mockRecorder);
-      verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+      verify(mockRecorder, never())
+          .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
     } finally {
       setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
     }
