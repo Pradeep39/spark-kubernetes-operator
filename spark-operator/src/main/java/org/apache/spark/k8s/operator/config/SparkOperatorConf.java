@@ -231,9 +231,11 @@ public final class SparkOperatorConf {
           .key("spark.kubernetes.operator.reconciler.executorStateEnabled")
           .enableDynamicOverride(true)
           .description(
-              "Whether the operator records the state of each executor of a Spark application in "
-                  + "its status.executorState. Its status.activeExecutors and "
-                  + "status.maxExecutorId are recorded either way. They change only when an "
+              "Whether the operator records the state of each executor of a Spark application "
+                  + "with Dynamic Allocation in its status.executorState. Its "
+                  + "status.activeExecutors and status.maxExecutorId are recorded either way. "
+                  + "Nothing is recorded for an application without Dynamic Allocation. They "
+                  + "change only when an "
                   + "executor is added or removed, while an executor state also changes when an "
                   + "executor starts running, completes or fails, so disabling the executor "
                   + "states writes the status of an application less often.")

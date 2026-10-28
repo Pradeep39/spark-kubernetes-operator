@@ -42,17 +42,18 @@ import org.apache.spark.k8s.operator.status.ExecutorState;
 import org.apache.spark.k8s.operator.utils.DeletedExecutorPods;
 import org.apache.spark.k8s.operator.utils.ExecutorStateUtils;
 import org.apache.spark.k8s.operator.utils.SparkAppStatusRecorder;
+import org.apache.spark.k8s.operator.utils.Utils;
 
 /**
- * Records the state of each executor of the application in its {@code status.executorState}, and
- * the number of its active executors and its highest executor ID in {@code status.activeExecutors}
- * and {@code status.maxExecutorId}, which schedulers such as Kueue read to follow Spark Dynamic
- * Allocation. The executor pods come from the
- * informer of the
- * application's pods, so a change of an executor pod reconciles the application and is recorded
- * here. The final states of the executor pods which were deleted since come from {@link
- * DeletedExecutorPods}, and are forgotten there once they are recorded. The status is written only
- * when an executor state changed.
+ * For an application with Spark Dynamic Allocation, records the number of its active executors and
+ * its highest executor ID in {@code status.activeExecutors} and {@code status.maxExecutorId}, and,
+ * unless {@code executorStateEnabled} is off, the state of each executor in {@code
+ * status.executorState}. Schedulers such as Kueue read them to follow Dynamic Allocation. Nothing
+ * is recorded for an application without Dynamic Allocation, whose executors its spec fixes. The
+ * executor pods come from the informer of the application's pods, so a change of an executor pod
+ * reconciles the application and is recorded here. The final states of the executor pods which
+ * were deleted since come from {@link DeletedExecutorPods}, and are forgotten there once they are
+ * recorded. The status is written only when one of them changed.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -78,6 +79,12 @@ public final class AppExecutorStateStep extends AppReconcileStep {
     if (ApplicationStateSummary.Suspended
         == app.getStatus().getCurrentState().getCurrentStateSummary()) {
       deletedExecutorPods.remove(appId, deletedExecutors);
+      return proceed();
+    }
+    // The executors of an application without Dynamic Allocation are fixed by its spec, so nothing
+    // is recorded for it, and its status is not written to.
+    if (!Utils.isDynamicAllocationEnabled(app)) {
+      deletedExecutorPods.clear(appId);
       return proceed();
     }
     Collection<Pod> executorPods = context.getExecutorsForApplication();

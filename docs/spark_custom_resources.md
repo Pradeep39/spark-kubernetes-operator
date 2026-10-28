@@ -267,6 +267,11 @@ driver pod status with the stopping state for audit purposes.
 
 ## Executor States
 
+For an application with Dynamic Allocation (`spark.dynamicAllocation.enabled` set to `true`),
+Spark Operator records the executors of the current attempt in its status, as below. Nothing is
+recorded for an application without Dynamic Allocation, whose executors its spec fixes, so its
+status is not written to for them.
+
 Spark Operator records the state of each executor of the current attempt in
 `status.executorState`, by executor pod name. Spark Dynamic Allocation adds and removes executors
 from the driver, without changing the `SparkApplication` spec, so schedulers such as Kueue follow

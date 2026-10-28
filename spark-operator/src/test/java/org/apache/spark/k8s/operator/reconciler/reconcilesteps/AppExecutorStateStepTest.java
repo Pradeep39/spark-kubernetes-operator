@@ -63,6 +63,7 @@ class AppExecutorStateStepTest {
     mockContext = mock(SparkAppContext.class);
     mockRecorder = mock(SparkAppStatusRecorder.class);
     app = TestUtils.createMockApp("default");
+    app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "true");
     app.setStatus(
         new ApplicationStatus()
             .appendNewState(new ApplicationState(ApplicationStateSummary.RunningHealthy, "")));
@@ -317,5 +318,25 @@ class AppExecutorStateStepTest {
     } finally {
       setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
     }
+  }
+
+  @Test
+  void recordsNothingWithoutDynamicAllocation() {
+    app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "false");
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+    Pod deleted = executorPod("app-exec-2", "2", "Succeeded");
+    deleted.getMetadata().getLabels().put(Constants.LABEL_SPARK_APPLICATION_NAME, "sentinel");
+    deletedExecutorPods.record(deleted);
+
+    assertEquals(ReconcileProgress.proceed(), step.reconcile(mockContext, mockRecorder));
+
+    verify(mockRecorder, never())
+        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    assertTrue(app.getStatus().getExecutorState().isEmpty());
+    assertNull(app.getStatus().getActiveExecutors());
+    assertNull(app.getStatus().getMaxExecutorId());
+    // The deleted executors of the application are not kept in memory
+    assertTrue(deletedExecutorPods.get(ResourceID.fromResource(app)).isEmpty());
   }
 }
