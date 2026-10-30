@@ -358,6 +358,45 @@ operatorConfiguration:
 When they are turned off again, `status.executorState` is cleared, while `status.activeExecutors`
 and `status.maxExecutorId` are recorded as before.
 
+### Tuning and API server load
+
+Each status write of a SparkApplication is a `PUT` of the whole object, which the API server also
+sends as a watch event to every watcher of SparkApplications, such as this operator and Kueue. The
+load which these fields add is therefore about the number of writes, times the size of the object,
+times one plus the number of watchers:
+
+- **Writes.** Only applications with Dynamic Allocation are written to, and only when a recorded
+  field changed. Several executor changes within one reconciliation are written at once. An
+  executor causes about one status write over its life with the executor states off, when it is
+  added or removed, and about two with them on, since it also starts running. The reconcile rate
+  limiter caps the writes of an application at `maxLoopForPeriod` per `refreshPeriodSeconds` (5 per
+  15 seconds by default, about one every 3 seconds).
+- **Object size.** Without the executor states, the object keeps a constant size of a few KB. With
+  them, every entry of `status.executorState` adds about 45 to 80 bytes, depending on the length of
+  the executor pod names, to every write of the application: at `maxTrackedExecutorPerApp` (1000 by
+  default), that is about 45 to 80 KB more in each write.
+
+For example, 20 applications with Dynamic Allocation started at once, with 1 to 3 executors each
+and a 4 second `spark.dynamicAllocation.executorIdleTimeout`, wrote their status about 14 times
+each with the executor states off, about 7 KB per write, and about 19 times each with them on. The
+API server sent about 2.5 times the request bytes as watch events.
+
+To keep the load low:
+
+- Keep `executorStateEnabled` off unless a consumer needs the state of each executor. Kueue needs
+  only `activeExecutors` and `maxExecutorId`.
+- When the executor states are on, lower `maxTrackedExecutorPerApp` to the number of executors a
+  consumer needs, since the map is part of every write. `activeExecutors` stays exact beyond it.
+- `maxLoopForPeriod` and `refreshPeriodSeconds` bound the writes of each application, together with
+  every other reconciliation of it. Allowing more reconciliations per period keeps the fields closer
+  to the executor pods, as described above, but also raises the most writes which many applications
+  scaling at once can make. Keep the default for bursts of submissions, or lower it if the write
+  rate of the API server is the constraint.
+- Before turning the executor states on in a large cluster, measure the status writes of
+  SparkApplications (`apiserver_request_total` with `resource="sparkapplications"` and
+  `subresource="status"`), their size (`apiserver_request_body_size_bytes`) and the watch traffic
+  (`apiserver_watch_events_sizes`).
+
 ## Configure the Tolerations for SparkApplication
 
 ### Restart
