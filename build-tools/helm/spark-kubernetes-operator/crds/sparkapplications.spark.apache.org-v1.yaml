@@ -16521,6 +16521,8 @@ spec:
               type: object
             status:
               properties:
+                activeExecutors:
+                  type: integer
                 currentAttemptSummary:
                   properties:
                     attemptInfo:
@@ -17895,6 +17897,18 @@ spec:
                         - SpecSuspend
                       type: string
                   type: object
+                executorState:
+                  additionalProperties:
+                    enum:
+                      - COMPLETED
+                      - FAILED
+                      - PENDING
+                      - RUNNING
+                      - UNKNOWN
+                    type: string
+                  type: object
+                maxExecutorId:
+                  type: integer
                 previousAttemptSummary:
                   properties:
                     attemptInfo:
