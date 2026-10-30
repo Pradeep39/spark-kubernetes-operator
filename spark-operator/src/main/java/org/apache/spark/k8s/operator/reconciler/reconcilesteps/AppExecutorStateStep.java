@@ -47,7 +47,7 @@ import org.apache.spark.k8s.operator.utils.Utils;
 /**
  * For an application with Spark Dynamic Allocation, records the number of its active executors and
  * its highest executor ID in {@code status.activeExecutors} and {@code status.maxExecutorId}, and,
- * unless {@code executorStateEnabled} is off, the state of each executor in {@code
+ * when {@code executorStateEnabled} is on, the state of each executor in {@code
  * status.executorState}. Schedulers such as Kueue read them to follow Dynamic Allocation. Nothing
  * is recorded for an application without Dynamic Allocation, whose executors its spec fixes. The
  * executor pods come from the informer of the application's pods, so a change of an executor pod

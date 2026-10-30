@@ -36,6 +36,7 @@ import java.util.Set;
 import io.fabric8.kubernetes.api.model.Pod;
 import io.fabric8.kubernetes.api.model.PodBuilder;
 import io.javaoperatorsdk.operator.processing.event.ResourceID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -61,6 +62,8 @@ class AppExecutorStateStepTest {
 
   @BeforeEach
   void setUp() {
+    // The executor states are off by default; most tests here check them
+    setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
     mockContext = mock(SparkAppContext.class);
     mockRecorder = mock(SparkAppStatusRecorder.class);
     app = TestUtils.createMockApp("default");
@@ -77,6 +80,11 @@ class AppExecutorStateStepTest {
               app.setStatus(invocation.getArgument(1));
               return true;
             });
+  }
+
+  @AfterEach
+  void tearDown() {
+    setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);
   }
 
   private static Pod executorPod(String name, String phase) {
@@ -285,25 +293,21 @@ class AppExecutorStateStepTest {
   @Test
   void recordsOnlyTheCountAndTheIdWithoutExecutorStates() {
     setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);
-    try {
-      when(mockContext.getExecutorsForApplication())
-          .thenReturn(Set.of(executorPod("app-exec-1", "1", "Pending")));
-      step.reconcile(mockContext, mockRecorder);
-      assertTrue(app.getStatus().getExecutorState().isEmpty());
-      assertEquals(1, app.getStatus().getActiveExecutors());
-      assertEquals(1L, app.getStatus().getMaxExecutorId());
-      verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
-      clearInvocations(mockRecorder);
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Pending")));
+    step.reconcile(mockContext, mockRecorder);
+    assertTrue(app.getStatus().getExecutorState().isEmpty());
+    assertEquals(1, app.getStatus().getActiveExecutors());
+    assertEquals(1L, app.getStatus().getMaxExecutorId());
+    verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    clearInvocations(mockRecorder);
 
-      // The executor starts running: nothing the status records changed, so it is not written
-      when(mockContext.getExecutorsForApplication())
-          .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
-      step.reconcile(mockContext, mockRecorder);
-      verify(mockRecorder, never())
-          .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
-    } finally {
-      setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
-    }
+    // The executor starts running: nothing the status records changed, so it is not written
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+    step.reconcile(mockContext, mockRecorder);
+    verify(mockRecorder, never())
+        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
   }
 
   @Test
@@ -315,13 +319,9 @@ class AppExecutorStateStepTest {
     when(mockContext.getExecutorsForApplication())
         .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
     setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);
-    try {
-      step.reconcile(mockContext, mockRecorder);
-      assertTrue(app.getStatus().getExecutorState().isEmpty());
-      assertEquals(1, app.getStatus().getActiveExecutors());
-    } finally {
-      setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, true);
-    }
+    step.reconcile(mockContext, mockRecorder);
+    assertTrue(app.getStatus().getExecutorState().isEmpty());
+    assertEquals(1, app.getStatus().getActiveExecutors());
   }
 
   @Test

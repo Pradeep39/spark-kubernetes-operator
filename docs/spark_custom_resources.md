@@ -272,7 +272,8 @@ Spark Operator records the executors of the current attempt in its status, as be
 recorded for an application without Dynamic Allocation, whose executors its spec fixes, so its
 status is not written to for them.
 
-Spark Operator records the state of each executor of the current attempt in
+When `spark.kubernetes.operator.reconciler.executorStateEnabled` is on (it is off by default, see
+below), Spark Operator records the state of each executor of the current attempt in
 `status.executorState`, by executor pod name. Spark Dynamic Allocation adds and removes executors
 from the driver, without changing the `SparkApplication` spec, so schedulers such as Kueue follow
 the executors of an application through these operator-declared states:
@@ -326,8 +327,8 @@ operatorConfiguration:
 Both properties are read at start-up, so the operator has to be restarted to apply them. A
 non-positive `maxLoopForPeriod` disables the rate limiter.
 
-Along with the executor states, the operator records two numbers of the current attempt, which
-schedulers such as Kueue use to charge and track the executors of an application:
+Whether or not it records the executor states, the operator records two numbers of the current
+attempt, which schedulers such as Kueue use to charge and track the executors of an application:
 
 - `status.activeExecutors` is the number of its executor pods which are pending, including those
   held by a scheduling gate, or running, including those being deleted. It is counted from the
@@ -344,17 +345,18 @@ API server, and the status is written only when one of them or an executor state
 
 An executor state also changes when an executor starts running, completes or fails, while
 `activeExecutors` and `maxExecutorId` change only when an executor is added or removed. A scheduler
-which charges executors from `activeExecutors` does not need the executor states, so to write the
-status of applications less often, e.g. when many applications scale at once, disable them:
+which charges executors from `activeExecutors` does not need the executor states, so they are off
+by default, which writes the status of applications less often, e.g. when many applications scale
+at once. To record them:
 
 ```yaml
 operatorConfiguration:
   spark-operator.properties: |+
-    spark.kubernetes.operator.reconciler.executorStateEnabled=false
+    spark.kubernetes.operator.reconciler.executorStateEnabled=true
 ```
 
-`status.executorState` is then left empty, and cleared if it was recorded before, while
-`status.activeExecutors` and `status.maxExecutorId` are recorded as before.
+When they are turned off again, `status.executorState` is cleared, while `status.activeExecutors`
+and `status.maxExecutorId` are recorded as before.
 
 ## Configure the Tolerations for SparkApplication
 
