@@ -19,9 +19,9 @@
 
 package org.apache.spark.k8s.operator.status;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import java.util.Arrays;
 import java.util.EnumSet;
 
 import org.junit.jupiter.api.Test;
@@ -30,9 +30,15 @@ class ExecutorStateTest {
 
   @Test
   void testValuesAndTheirOrder() {
-    assertEquals(
-        "[PENDING, RUNNING, COMPLETED, FAILED, UNKNOWN]",
-        Arrays.toString(ExecutorState.values()));
+    assertArrayEquals(
+        new ExecutorState[] {
+          ExecutorState.PENDING,
+          ExecutorState.RUNNING,
+          ExecutorState.COMPLETED,
+          ExecutorState.FAILED,
+          ExecutorState.UNKNOWN
+        },
+        ExecutorState.values());
   }
 
   @Test
