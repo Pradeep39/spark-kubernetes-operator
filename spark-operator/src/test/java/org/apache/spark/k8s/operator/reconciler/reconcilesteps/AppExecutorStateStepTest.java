@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -120,7 +121,7 @@ class AppExecutorStateStepTest {
     app.setStatus(
         app.getStatus()
             .withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING))
-            .withActiveExecutors(1, 1L));
+            .withExecutorCounts(1, 0, 1L));
     when(mockContext.getExecutorsForApplication())
         .thenReturn(Set.of(executorPod("app-exec-1", "Running")));
 
@@ -218,6 +219,52 @@ class AppExecutorStateStepTest {
     assertEquals(3L, app.getStatus().getMaxExecutorId());
   }
 
+  private static Pod readyExecutorPod(String name, String executorId) {
+    return new PodBuilder(executorPod(name, executorId, "Running"))
+        .editStatus()
+        .addNewCondition()
+        .withType("Ready")
+        .withStatus("True")
+        .endCondition()
+        .endStatus()
+        .build();
+  }
+
+  @Test
+  void recordsTheReadyExecutors() {
+    Pod deleting = readyExecutorPod("app-exec-3", "3");
+    deleting.getMetadata().setDeletionTimestamp("2026-11-06T00:00:00Z");
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(
+            Set.of(
+                readyExecutorPod("app-exec-1", "1"),
+                executorPod("app-exec-2", "2", "Running"),
+                deleting,
+                executorPod("app-exec-4", "4", "Pending"),
+                executorPod("app-exec-5", "5", "Succeeded")));
+
+    step.reconcile(mockContext, mockRecorder);
+
+    assertEquals(4, app.getStatus().getActiveExecutors());
+    assertEquals(1, app.getStatus().getReadyExecutors());
+  }
+
+  @Test
+  void writesTheStatusWhenOnlyTheReadyExecutorsChanged() {
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+    step.reconcile(mockContext, mockRecorder);
+    assertEquals(0, app.getStatus().getReadyExecutors());
+
+    when(mockContext.getExecutorsForApplication())
+        .thenReturn(Set.of(readyExecutorPod("app-exec-1", "1")));
+    step.reconcile(mockContext, mockRecorder);
+
+    assertEquals(1, app.getStatus().getReadyExecutors());
+    verify(mockRecorder, times(2))
+        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+  }
+
   @Test
   void keepsTheHighestExecutorIdWhenItsExecutorIsGone() {
     when(mockContext.getExecutorsForApplication())
@@ -251,6 +298,7 @@ class AppExecutorStateStepTest {
     verify(mockRecorder, never())
         .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
     assertNull(app.getStatus().getActiveExecutors());
+    assertNull(app.getStatus().getReadyExecutors());
     assertNull(app.getStatus().getMaxExecutorId());
   }
 
@@ -259,7 +307,7 @@ class AppExecutorStateStepTest {
     app.setStatus(
         app.getStatus()
             .withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING))
-            .withActiveExecutors(2, 1L));
+            .withExecutorCounts(2, 0, 1L));
     when(mockContext.getExecutorsForApplication())
         .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
 
@@ -270,21 +318,23 @@ class AppExecutorStateStepTest {
   }
 
   @Test
-  void countsEveryActiveExecutorBeyondTheExecutorStateLimit() {
+  void countsEveryActiveAndReadyExecutorBeyondTheExecutorStateLimit() {
     setConfigKey(SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP, 2);
     try {
       when(mockContext.getExecutorsForApplication())
           .thenReturn(
               Set.of(
-                  executorPod("app-exec-1", "1", "Running"),
-                  executorPod("app-exec-2", "2", "Running"),
-                  executorPod("app-exec-3", "3", "Pending")));
+                  readyExecutorPod("app-exec-1", "1"),
+                  readyExecutorPod("app-exec-2", "2"),
+                  readyExecutorPod("app-exec-3", "3"),
+                  executorPod("app-exec-4", "4", "Pending")));
 
       step.reconcile(mockContext, mockRecorder);
 
       assertEquals(2, app.getStatus().getExecutorState().size());
-      assertEquals(3, app.getStatus().getActiveExecutors());
-      assertEquals(3L, app.getStatus().getMaxExecutorId());
+      assertEquals(4, app.getStatus().getActiveExecutors());
+      assertEquals(3, app.getStatus().getReadyExecutors());
+      assertEquals(4L, app.getStatus().getMaxExecutorId());
     } finally {
       setConfigKey(SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP, 1000);
     }
@@ -315,7 +365,7 @@ class AppExecutorStateStepTest {
     app.setStatus(
         app.getStatus()
             .withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING))
-            .withActiveExecutors(1, 1L));
+            .withExecutorCounts(1, 0, 1L));
     when(mockContext.getExecutorsForApplication())
         .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
     setConfigKey(SparkOperatorConf.EXECUTOR_STATE_ENABLED, false);

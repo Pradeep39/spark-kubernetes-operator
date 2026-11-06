@@ -259,6 +259,30 @@ public final class ExecutorStateUtils {
   }
 
   /**
+   * Returns the number of ready executors of the current attempt, for its {@code
+   * status.readyExecutors}: its executor pods which are running and ready, see {@link
+   * PodUtils#isPodReady}, and not being deleted. Unlike the active executors, it leaves out the
+   * pending executors and those being deleted, so that it tells whether the executors have started.
+   *
+   * @param app The Spark application.
+   * @param executorPods The executor pods of the application, of any attempt.
+   * @return The number of ready executors of the current attempt.
+   */
+  public static int countReadyExecutors(
+      final SparkApplication app, final Collection<Pod> executorPods) {
+    String appId = currentAttemptAppId(app);
+    int ready = 0;
+    for (Pod pod : executorPods) {
+      if (appId.equals(pod.getMetadata().getLabels().get(Constants.LABEL_SPARK_APP_ID))
+          && pod.getMetadata().getDeletionTimestamp() == null
+          && PodUtils.isPodReady(pod)) {
+        ready++;
+      }
+    }
+    return ready;
+  }
+
+  /**
    * Returns the highest executor ID among the executor pods of the current attempt, from their
    * {@link Constants#LABEL_SPARK_EXECUTOR_ID} label, or the trailing digits of their name for a pod
    * without a valid label.

@@ -383,6 +383,34 @@ class ExecutorStateUtilsTest {
     assertEquals(0, ExecutorStateUtils.countActiveExecutors(app, List.of()));
   }
 
+  private static Pod withReady(Pod pod, String ready) {
+    return new PodBuilder(pod)
+        .editStatus()
+        .addNewCondition()
+        .withType("Ready")
+        .withStatus(ready)
+        .endCondition()
+        .endStatus()
+        .build();
+  }
+
+  @Test
+  void countsTheRunningAndReadyExecutorPodsOfTheCurrentAttempt() {
+    Pod deleting = withReady(currentExecutorPod("app-exec-4", "4", "Running"), "True");
+    deleting.getMetadata().setDeletionTimestamp("2026-11-06T00:00:00Z");
+    List<Pod> pods =
+        List.of(
+            withReady(currentExecutorPod("app-exec-1", "1", "Running"), "True"),
+            withReady(currentExecutorPod("app-exec-2", "2", "Running"), "False"),
+            currentExecutorPod("app-exec-3", "3", "Running"),
+            deleting,
+            currentExecutorPod("app-exec-5", "5", "Pending"),
+            withReady(currentExecutorPod("app-exec-6", "6", "Succeeded"), "False"),
+            withReady(executorPod("app-exec-7", "sentinel-previous", "7", "Running"), "True"));
+    assertEquals(1, ExecutorStateUtils.countReadyExecutors(app, pods));
+    assertEquals(0, ExecutorStateUtils.countReadyExecutors(app, List.of()));
+  }
+
   @Test
   void findsTheHighestExecutorIdOfTheCurrentAttempt() {
     List<Pod> pods =

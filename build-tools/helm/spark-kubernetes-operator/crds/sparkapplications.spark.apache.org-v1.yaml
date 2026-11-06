@@ -18604,6 +18604,8 @@ spec:
                         type: object
                       type: object
                   type: object
+                readyExecutors:
+                  type: integer
                 stateTransitionHistory:
                   additionalProperties:
                     properties:

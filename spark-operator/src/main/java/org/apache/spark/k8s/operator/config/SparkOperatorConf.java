@@ -234,13 +234,13 @@ public final class SparkOperatorConf {
           .description(
               "Whether the operator records the state of each executor of a Spark "
                   + "application with Dynamic Allocation in its status.executorState. Its "
-                  + "status.activeExecutors and status.maxExecutorId, which schedulers such as "
-                  + "Kueue need, are recorded either way. Nothing is recorded for an "
-                  + "application without Dynamic Allocation. The count and the ID change only "
-                  + "when an executor is added or removed, while an executor state also changes "
-                  + "when an executor starts running, completes or fails, so the executor "
-                  + "states are off by default to write the status of an application less "
-                  + "often.")
+                  + "status.activeExecutors, status.readyExecutors and status.maxExecutorId, "
+                  + "which schedulers such as Kueue need, are recorded either way. Nothing is "
+                  + "recorded for an application without Dynamic Allocation. The counts and the "
+                  + "ID change only when an executor is added, becomes ready or is removed, "
+                  + "while an executor state also changes when an executor completes or fails, "
+                  + "and every executor state adds to each write, so the executor states are off "
+                  + "by default to write the status of an application less often and smaller.")
           .typeParameterClass(Boolean.class)
           .defaultValue(false)
           .build();

@@ -76,6 +76,16 @@ public class ApplicationStatus
   @Getter final Integer activeExecutors;
 
   /**
+   * The number of ready executors of the current attempt: its executor pods which are running and
+   * ready, and not being deleted. Like {@link #activeExecutors}, it is counted from the executor
+   * pods. Schedulers such as Kueue compare it with the minimum number of executors to tell whether
+   * the application has started. It is unset until the attempt has an executor pod.
+   *
+   * @since 1.1.0
+   */
+  @Getter final Integer readyExecutors;
+
+  /**
    * The highest executor ID of the current attempt so far. Spark assigns increasing executor IDs
    * within an attempt and never reuses them, so it grows with every executor added and never
    * decreases within the attempt, e.g. for schedulers such as Kueue to tell scale-ups apart. It is
@@ -94,6 +104,7 @@ public class ApplicationStatus
     super(new ApplicationState(), new ApplicationAttemptSummary());
     this.executorState = new TreeMap<>();
     this.activeExecutors = null;
+    this.readyExecutors = null;
     this.maxExecutorId = null;
   }
 
@@ -137,6 +148,7 @@ public class ApplicationStatus
         currentAttemptSummary,
         executorState,
         null,
+        null,
         null);
   }
 
@@ -149,6 +161,7 @@ public class ApplicationStatus
    * @param currentAttemptSummary Summary of the current application attempt.
    * @param executorState The state of each executor of the current attempt by pod name, or null.
    * @param activeExecutors The number of active executors of the current attempt, or null.
+   * @param readyExecutors The number of ready executors of the current attempt, or null.
    * @param maxExecutorId The highest executor ID of the current attempt so far, or null.
    * @since 1.1.0
    */
@@ -160,10 +173,12 @@ public class ApplicationStatus
       @JsonProperty("currentAttemptSummary") ApplicationAttemptSummary currentAttemptSummary,
       @JsonProperty("executorState") Map<String, ExecutorState> executorState,
       @JsonProperty("activeExecutors") Integer activeExecutors,
+      @JsonProperty("readyExecutors") Integer readyExecutors,
       @JsonProperty("maxExecutorId") Long maxExecutorId) {
     super(currentState, stateTransitionHistory, previousAttemptSummary, currentAttemptSummary);
     this.executorState = executorState == null ? new TreeMap<>() : new TreeMap<>(executorState);
     this.activeExecutors = activeExecutors;
+    this.readyExecutors = readyExecutors;
     this.maxExecutorId = maxExecutorId;
   }
 
@@ -182,20 +197,22 @@ public class ApplicationStatus
         currentAttemptSummary,
         newExecutorState,
         activeExecutors,
+        readyExecutors,
         maxExecutorId);
   }
 
   /**
-   * Returns a copy of this status with the given active executor count and highest executor ID,
-   * and everything else unchanged.
+   * Returns a copy of this status with the given active and ready executor counts and highest
+   * executor ID, and everything else unchanged.
    *
    * @param newActiveExecutors The number of active executors of the current attempt, or null.
+   * @param newReadyExecutors The number of ready executors of the current attempt, or null.
    * @param newMaxExecutorId The highest executor ID of the current attempt so far, or null.
-   * @return A new ApplicationStatus object with the given executor count and ID.
+   * @return A new ApplicationStatus object with the given executor counts and ID.
    * @since 1.1.0
    */
-  public ApplicationStatus withActiveExecutors(
-      Integer newActiveExecutors, Long newMaxExecutorId) {
+  public ApplicationStatus withExecutorCounts(
+      Integer newActiveExecutors, Integer newReadyExecutors, Long newMaxExecutorId) {
     return new ApplicationStatus(
         currentState,
         stateTransitionHistory,
@@ -203,6 +220,7 @@ public class ApplicationStatus
         currentAttemptSummary,
         executorState,
         newActiveExecutors,
+        newReadyExecutors,
         newMaxExecutorId);
   }
 
@@ -223,6 +241,7 @@ public class ApplicationStatus
         currentAttemptSummary,
         suspended ? null : executorState,
         suspended ? null : activeExecutors,
+        suspended ? null : readyExecutors,
         suspended ? null : maxExecutorId);
   }
 
@@ -283,6 +302,7 @@ public class ApplicationStatus
           currentAttemptSummary,
           executorState,
           activeExecutors,
+          readyExecutors,
           maxExecutorId);
     }
 
@@ -342,6 +362,7 @@ public class ApplicationStatus
           currentAttemptSummary,
           executorState,
           activeExecutors,
+          readyExecutors,
           maxExecutorId);
     }
 

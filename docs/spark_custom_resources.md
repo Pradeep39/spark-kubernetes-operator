@@ -285,6 +285,7 @@ status:
     pi-5f1d8e3a9b2c4f60-exec-1: RUNNING
     pi-5f1d8e3a9b2c4f60-exec-2: PENDING
   maxExecutorId: 2
+  readyExecutors: 1
 ```
 
 An executor is `PENDING`, `RUNNING`, `COMPLETED` or `FAILED` while its pod is in the phase
@@ -327,27 +328,32 @@ operatorConfiguration:
 Both properties are read at start-up, so the operator has to be restarted to apply them. A
 non-positive `maxLoopForPeriod` disables the rate limiter.
 
-Whether or not it records the executor states, the operator records two numbers of the current
+Whether or not it records the executor states, the operator records three numbers of the current
 attempt, which schedulers such as Kueue use to charge and track the executors of an application:
 
 - `status.activeExecutors` is the number of its executor pods which are pending, including those
   held by a scheduling gate, or running, including those being deleted. It is counted from the
   executor pods, not from `status.executorState`, so it stays exact when an application has more
   pending and running executors than `maxTrackedExecutorPerApp`.
+- `status.readyExecutors` is the number of its executor pods which are running and ready, and not
+  being deleted. Unlike `activeExecutors`, it leaves out pending executors and those being removed,
+  so a scheduler can compare it with the minimum number of executors to tell whether the
+  application has started, e.g. for Kueue's `waitForPodsReady`. It is also counted from the
+  executor pods.
 - `status.maxExecutorId` is the highest executor ID so far, from the `spark-exec-id` label of the
   executor pods, or the trailing digits of their name. Spark never reuses an executor ID within an
   attempt, so it grows with every executor added and does not decrease when executors are removed.
 
-Both are unset until the attempt has an executor pod, are kept until the attempt ends, and start
-over with the next attempt and when the application is suspended, like `status.executorState`. They
-are computed from the same executor pods in the same reconciliation, so they add no requests to the
+All three are unset until the attempt has an executor pod, are kept until the attempt ends, and
+start over with the next attempt and when the application is suspended, like `status.executorState`.
+They are computed from the same executor pods in the same reconciliation, so they add no requests to the
 API server, and the status is written only when one of them or an executor state changed.
 
-An executor state also changes when an executor starts running, completes or fails, while
-`activeExecutors` and `maxExecutorId` change only when an executor is added or removed. A scheduler
-which charges executors from `activeExecutors` does not need the executor states, so they are off
-by default, which writes the status of applications less often, e.g. when many applications scale
-at once. To record them:
+An executor state also changes when an executor completes or fails, while the counts and
+`maxExecutorId` change only when an executor is added, becomes ready or is removed, and every
+executor state adds to each write. A scheduler which reads the counts does not need the executor
+states, so they are off by default, which writes the status of applications less often and smaller,
+e.g. when many applications scale at once. To record them:
 
 ```yaml
 operatorConfiguration:
@@ -355,8 +361,8 @@ operatorConfiguration:
     spark.kubernetes.operator.reconciler.executorStateEnabled=true
 ```
 
-When they are turned off again, `status.executorState` is cleared, while `status.activeExecutors`
-and `status.maxExecutorId` are recorded as before.
+When they are turned off again, `status.executorState` is cleared, while `status.activeExecutors`,
+`status.readyExecutors` and `status.maxExecutorId` are recorded as before.
 
 ### Tuning and API server load
 
@@ -367,8 +373,9 @@ times one plus the number of watchers:
 
 - **Writes.** Only applications with Dynamic Allocation are written to, and only when a recorded
   field changed. Several executor changes within one reconciliation are written at once. An
-  executor causes about one status write over its life with the executor states off, when it is
-  added or removed, and about two with them on, since it also starts running. The reconcile rate
+  executor causes up to three status writes over its life, when it is added, when it becomes ready
+  and when it is removed, and fewer when they fall into the same reconciliation. The executor states
+  add a write only when an executor completes or fails apart from its removal. The reconcile rate
   limiter caps the writes of an application at `maxLoopForPeriod` per `refreshPeriodSeconds` (5 per
   15 seconds by default, about one every 3 seconds).
 - **Object size.** Without the executor states, the object keeps a constant size of a few KB. With
@@ -376,15 +383,15 @@ times one plus the number of watchers:
   the executor pod names, to every write of the application: at `maxTrackedExecutorPerApp` (1000 by
   default), that is about 45 to 80 KB more in each write.
 
-For example, 20 applications with Dynamic Allocation started at once, with 1 to 3 executors each
-and a 4 second `spark.dynamicAllocation.executorIdleTimeout`, wrote their status about 14 times
-each with the executor states off, about 7 KB per write, and about 19 times each with them on. The
-API server sent about 2.5 times the request bytes as watch events.
+For example, before `readyExecutors` was recorded, 20 applications with Dynamic Allocation started
+at once, with 1 to 3 executors each and a 4 second `spark.dynamicAllocation.executorIdleTimeout`,
+wrote their status about 14 times each with the executor states off, about 7 KB per write, and about
+19 times each with them on. The API server sent about 2.5 times the request bytes as watch events.
 
 To keep the load low:
 
 - Keep `executorStateEnabled` off unless a consumer needs the state of each executor. Kueue needs
-  only `activeExecutors` and `maxExecutorId`.
+  only `activeExecutors`, `readyExecutors` and `maxExecutorId`.
 - When the executor states are on, lower `maxTrackedExecutorPerApp` to the number of executors a
   consumer needs, since the map is part of every write. `activeExecutors` stays exact beyond it.
 - `maxLoopForPeriod` and `refreshPeriodSeconds` bound the writes of each application, together with

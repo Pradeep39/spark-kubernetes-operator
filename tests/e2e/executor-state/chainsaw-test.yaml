@@ -47,9 +47,9 @@ spec:
         timeout: 30s
         content: |
           kubectl get sparkapplication "$SPARK_APPLICATION_NAME" -o json \
-            | jq -c '.status | [has("executorState"), has("activeExecutors"), has("maxExecutorId")]'
+            | jq -c '.status | [has("executorState"), has("activeExecutors"), has("readyExecutors"), has("maxExecutorId")]'
         check:
-          ($stdout): '[false,false,false]'
+          ($stdout): '[false,false,false,false]'
     catch:
     - describe:
         apiVersion: spark.apache.org/v1
@@ -96,6 +96,7 @@ spec:
               currentStateSummary: ResourceReleased
             (executorState == null): true
             activeExecutors: 0
+            readyExecutors: 0
             (maxExecutorId >= `2`): true
     catch:
     - describe:
@@ -160,6 +161,7 @@ spec:
             (length(values(executorState || `{}`)[?@ == 'COMPLETED']) > `0`): true
             (length(values(executorState || `{}`)[?@ != 'COMPLETED' && @ != 'FAILED'])): 0
             activeExecutors: 0
+            readyExecutors: 0
             (maxExecutorId >= `2`): true
     catch:
     - describe:

@@ -45,8 +45,9 @@ import org.apache.spark.k8s.operator.utils.SparkAppStatusRecorder;
 import org.apache.spark.k8s.operator.utils.Utils;
 
 /**
- * For an application with Spark Dynamic Allocation, records the number of its active executors and
- * its highest executor ID in {@code status.activeExecutors} and {@code status.maxExecutorId}, and,
+ * For an application with Spark Dynamic Allocation, records the number of its active and ready
+ * executors and its highest executor ID in {@code status.activeExecutors}, {@code
+ * status.readyExecutors} and {@code status.maxExecutorId}, and,
  * when {@code executorStateEnabled} is on, the state of each executor in {@code
  * status.executorState}. Schedulers such as Kueue read them to follow Dynamic Allocation. Nothing
  * is recorded for an application without Dynamic Allocation, whose executors its spec fixes. The
@@ -99,17 +100,22 @@ public final class AppExecutorStateStep extends AppReconcileStep {
             : new TreeMap<>();
     ApplicationStatus status = app.getStatus();
     Integer activeExecutors = activeExecutors(status, executorPods, app);
+    // A ready executor is also active, so both are unset until the attempt has an executor pod
+    Integer readyExecutors =
+        activeExecutors == null ? null : ExecutorStateUtils.countReadyExecutors(app, executorPods);
     Long maxExecutorId = maxExecutorId(status, executorPods, app);
     if (executorState.equals(status.getExecutorState())
         && Objects.equals(activeExecutors, status.getActiveExecutors())
+        && Objects.equals(readyExecutors, status.getReadyExecutors())
         && Objects.equals(maxExecutorId, status.getMaxExecutorId())) {
       deletedExecutorPods.remove(appId, deletedExecutors);
       return proceed();
     }
     log.debug(
-        "Executor states changed to {}, {} active, highest executor ID {}",
+        "Executor states changed to {}, {} active, {} ready, highest executor ID {}",
         executorState,
         activeExecutors,
+        readyExecutors,
         maxExecutorId);
     ReconcileProgress progress =
         attemptStatusUpdate(
@@ -117,7 +123,7 @@ public final class AppExecutorStateStep extends AppReconcileStep {
             statusRecorder,
             status
                 .withExecutorState(executorState)
-                .withActiveExecutors(activeExecutors, maxExecutorId),
+                .withExecutorCounts(activeExecutors, readyExecutors, maxExecutorId),
             proceed());
     // Kept for the next reconciliation if the status could not be written
     if (!progress.isCompleted()) {
