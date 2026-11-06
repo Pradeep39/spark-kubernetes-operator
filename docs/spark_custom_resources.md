@@ -268,9 +268,10 @@ driver pod status with the stopping state for audit purposes.
 ## Executor States
 
 For an application with Dynamic Allocation (`spark.dynamicAllocation.enabled` set to `true`),
-Spark Operator records the executors of the current attempt in its status, as below. Nothing is
-recorded for an application without Dynamic Allocation, whose executors its spec fixes, so its
-status is not written to for them.
+Spark Operator records the executors of the current attempt in its status, as below. An
+application without Dynamic Allocation, whose executors its spec fixes, records only
+`status.activeExecutors` and `status.readyExecutors`, so that a scheduler charges and tracks the
+executors of every application the same way.
 
 When `spark.kubernetes.operator.reconciler.executorStateEnabled` is on (it is off by default, see
 below), Spark Operator records the state of each executor of the current attempt in
@@ -329,7 +330,8 @@ Both properties are read at start-up, so the operator has to be restarted to app
 non-positive `maxLoopForPeriod` disables the rate limiter.
 
 Whether or not it records the executor states, the operator records three numbers of the current
-attempt, which schedulers such as Kueue use to charge and track the executors of an application:
+attempt, which schedulers such as Kueue use to charge and track the executors of an application,
+the first two also for an application without Dynamic Allocation:
 
 - `status.activeExecutors` is the number of its executor pods which are pending, including those
   held by a scheduling gate, or running, including those being deleted. It is counted from the
@@ -346,8 +348,8 @@ attempt, which schedulers such as Kueue use to charge and track the executors of
 
 All three are unset until the attempt has an executor pod, are kept until the attempt ends, and
 start over with the next attempt and when the application is suspended, like `status.executorState`.
-They are computed from the same executor pods in the same reconciliation, so they add no requests to the
-API server, and the status is written only when one of them or an executor state changed.
+They are computed from the same executor pods in the same reconciliation, so they add no requests to
+the API server, and the status is written only when one of them or an executor state changed.
 
 An executor state also changes when an executor completes or fails, while the counts and
 `maxExecutorId` change only when an executor is added, becomes ready or is removed, and every
@@ -371,13 +373,15 @@ sends as a watch event to every watcher of SparkApplications, such as this opera
 load which these fields add is therefore about the number of writes, times the size of the object,
 times one plus the number of watchers:
 
-- **Writes.** Only applications with Dynamic Allocation are written to, and only when a recorded
-  field changed. Several executor changes within one reconciliation are written at once. An
-  executor causes up to three status writes over its life, when it is added, when it becomes ready
-  and when it is removed, and fewer when they fall into the same reconciliation. The executor states
-  add a write only when an executor completes or fails apart from its removal. The reconcile rate
-  limiter caps the writes of an application at `maxLoopForPeriod` per `refreshPeriodSeconds` (5 per
-  15 seconds by default, about one every 3 seconds).
+- **Writes.** The status is written only when a recorded field changed. An application without
+  Dynamic Allocation is written to for the same executor changes, which for its fixed executors
+  happen mostly when it starts and when it ends. Several executor changes within one reconciliation
+  are written at once. An executor causes up to three status writes over its life, when it is added,
+  when it becomes ready and when it is removed, and fewer when they fall into the same
+  reconciliation. The executor states add a write only when an executor completes or fails apart
+  from its removal. The reconcile rate limiter caps the writes of an application at
+  `maxLoopForPeriod` per `refreshPeriodSeconds` (5 per 15 seconds by default, about one every 3
+  seconds).
 - **Object size.** Without the executor states, the object keeps a constant size of a few KB. With
   them, every entry of `status.executorState` adds about 45 to 80 bytes, depending on the length of
   the executor pod names, to every write of the application: at `maxTrackedExecutorPerApp` (1000 by

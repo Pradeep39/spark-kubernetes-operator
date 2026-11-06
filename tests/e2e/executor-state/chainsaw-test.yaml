@@ -23,7 +23,7 @@ metadata:
 spec:
   namespace: default
   steps:
-  - name: application-without-dynamic-allocation-records-no-executors
+  - name: application-without-dynamic-allocation-records-only-executor-counts
     bindings:
       - name: SPARK_APPLICATION_NAME
         value: spark-executor-state-static-test
@@ -39,7 +39,7 @@ spec:
             value: default
         timeout: 60s
         file: ../assertions/spark-application/spark-state-transition.yaml
-    # Its executors are fixed by its spec, so its status is not written to for them
+    # Its executors are fixed by its spec, so it records only the executor counts
     - script:
         env:
           - name: SPARK_APPLICATION_NAME
@@ -49,7 +49,7 @@ spec:
           kubectl get sparkapplication "$SPARK_APPLICATION_NAME" -o json \
             | jq -c '.status | [has("executorState"), has("activeExecutors"), has("readyExecutors"), has("maxExecutorId")]'
         check:
-          ($stdout): '[false,false,false,false]'
+          ($stdout): '[false,true,true,false]'
     catch:
     - describe:
         apiVersion: spark.apache.org/v1

@@ -375,22 +375,41 @@ class AppExecutorStateStepTest {
   }
 
   @Test
-  void recordsNothingWithoutDynamicAllocation() {
+  void recordsOnlyTheExecutorCountsWithoutDynamicAllocation() {
     app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "false");
     when(mockContext.getExecutorsForApplication())
-        .thenReturn(Set.of(executorPod("app-exec-1", "1", "Running")));
+        .thenReturn(
+            Set.of(readyExecutorPod("app-exec-1", "1"), executorPod("app-exec-3", "3", "Pending")));
     Pod deleted = executorPod("app-exec-2", "2", "Succeeded");
     deleted.getMetadata().getLabels().put(Constants.LABEL_SPARK_APPLICATION_NAME, "sentinel");
     deletedExecutorPods.record(deleted);
 
     assertEquals(ReconcileProgress.proceed(), step.reconcile(mockContext, mockRecorder));
 
-    verify(mockRecorder, never())
-        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    assertEquals(2, app.getStatus().getActiveExecutors());
+    assertEquals(1, app.getStatus().getReadyExecutors());
     assertTrue(app.getStatus().getExecutorState().isEmpty());
-    assertNull(app.getStatus().getActiveExecutors());
     assertNull(app.getStatus().getMaxExecutorId());
     // The deleted executors of the application are not kept in memory
     assertTrue(deletedExecutorPods.get(ResourceID.fromResource(app)).isEmpty());
+
+    // An unchanged count is not written again
+    clearInvocations(mockRecorder);
+    step.reconcile(mockContext, mockRecorder);
+    verify(mockRecorder, never())
+        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+  }
+
+  @Test
+  void leavesAnApplicationWithoutDynamicAllocationAndExecutorsUnwritten() {
+    app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "false");
+    when(mockContext.getExecutorsForApplication()).thenReturn(Set.of());
+
+    step.reconcile(mockContext, mockRecorder);
+
+    verify(mockRecorder, never())
+        .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    assertNull(app.getStatus().getActiveExecutors());
+    assertNull(app.getStatus().getReadyExecutors());
   }
 }

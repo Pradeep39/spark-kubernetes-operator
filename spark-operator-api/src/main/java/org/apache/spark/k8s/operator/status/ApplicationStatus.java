@@ -53,9 +53,10 @@ public class ApplicationStatus
     extends BaseStatus<ApplicationStateSummary, ApplicationState, ApplicationAttemptSummary> {
 
   /**
-   * The state of each executor of the current attempt, by executor pod name. Spark Dynamic
-   * Allocation adds and removes executors without changing the spec, so schedulers such as Kueue
-   * follow them through these operator-declared states. An entry is kept after its pod is gone,
+   * The state of each executor of the current attempt, by executor pod name, recorded only for an
+   * application with Dynamic Allocation. Spark Dynamic Allocation adds and removes executors
+   * without changing the spec, so schedulers such as Kueue follow them through these
+   * operator-declared states. An entry is kept after its pod is gone,
    * and the map starts empty with each attempt and when the application is suspended.
    *
    * @since 1.1.0
@@ -89,7 +90,8 @@ public class ApplicationStatus
    * The highest executor ID of the current attempt so far. Spark assigns increasing executor IDs
    * within an attempt and never reuses them, so it grows with every executor added and never
    * decreases within the attempt, e.g. for schedulers such as Kueue to tell scale-ups apart. It is
-   * unset until the attempt has an executor pod.
+   * recorded only for an application with Dynamic Allocation, and is unset until the attempt has an
+   * executor pod.
    *
    * @since 1.1.0
    */
