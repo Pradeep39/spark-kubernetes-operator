@@ -46,15 +46,15 @@ import org.apache.spark.k8s.operator.utils.Utils;
 
 /**
  * Records the number of active and ready executors of an application in {@code
- * status.activeExecutors} and {@code status.readyExecutors}, and, for an application with Spark
- * Dynamic Allocation, its highest executor ID in {@code status.maxExecutorId} and, when {@code
- * executorStateEnabled} is on, the state of each executor in {@code status.executorState}.
- * Schedulers such as Kueue read the counts to charge an application and to tell whether its
- * executors have started, and the rest to follow Dynamic Allocation. The executor pods come from
- * the informer of the application's pods, so a change of an executor pod reconciles the application
- * and is recorded here. The final states of the executor pods which were deleted since come from
- * {@link DeletedExecutorPods}, and are forgotten there once they are recorded. The status is
- * written only when one of them changed.
+ * status.activeExecutors} and {@code status.readyExecutors}, unless {@code executorCountsEnabled}
+ * is off, and, for an application with Spark Dynamic Allocation, its highest executor ID in {@code
+ * status.maxExecutorId} and, when {@code executorStateEnabled} is on, the state of each executor in
+ * {@code status.executorState}. Schedulers such as Kueue read the counts to charge an application
+ * and to tell whether its executors have started, and the rest to follow Dynamic Allocation. The
+ * executor pods come from the informer of the application's pods, so a change of an executor pod
+ * reconciles the application and is recorded here. The final states of the executor pods which were
+ * deleted since come from {@link DeletedExecutorPods}, and are forgotten there once they are
+ * recorded. The status is written only when one of them changed.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -99,7 +99,11 @@ public final class AppExecutorStateStep extends AppReconcileStep {
                 SparkOperatorConf.MAX_TRACKED_EXECUTOR_PER_APP.getValue())
             : new TreeMap<>();
     ApplicationStatus status = app.getStatus();
-    Integer activeExecutors = activeExecutors(status, executorPods, app);
+    // Turning the counts off also clears the counts recorded before
+    Integer activeExecutors =
+        SparkOperatorConf.EXECUTOR_COUNTS_ENABLED.getValue()
+            ? activeExecutors(status, executorPods, app)
+            : null;
     // A ready executor is also active, so both are unset until the attempt has an executor pod
     Integer readyExecutors =
         activeExecutors == null ? null : ExecutorStateUtils.countReadyExecutors(app, executorPods);

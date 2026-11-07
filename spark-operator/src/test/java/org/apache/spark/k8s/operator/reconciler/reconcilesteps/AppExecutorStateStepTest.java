@@ -375,6 +375,73 @@ class AppExecutorStateStepTest {
   }
 
   @Test
+  void recordsNoExecutorCountsWhenTheyAreDisabled() {
+    setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, false);
+    try {
+      when(mockContext.getExecutorsForApplication())
+          .thenReturn(
+              Set.of(
+                  readyExecutorPod("app-exec-1", "1"), executorPod("app-exec-2", "2", "Pending")));
+
+      step.reconcile(mockContext, mockRecorder);
+
+      assertNull(app.getStatus().getActiveExecutors());
+      assertNull(app.getStatus().getReadyExecutors());
+      // The highest executor ID and the executor states have their own scope
+      assertEquals(2L, app.getStatus().getMaxExecutorId());
+      assertEquals(2, app.getStatus().getExecutorState().size());
+    } finally {
+      setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, true);
+    }
+  }
+
+  @Test
+  void clearsTheExecutorCountsOnceTheyAreDisabled() {
+    app.setStatus(
+        app.getStatus()
+            .withExecutorState(Map.of("app-exec-1", ExecutorState.RUNNING))
+            .withExecutorCounts(1, 1, 1L));
+    setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, false);
+    try {
+      when(mockContext.getExecutorsForApplication())
+          .thenReturn(Set.of(readyExecutorPod("app-exec-1", "1")));
+
+      step.reconcile(mockContext, mockRecorder);
+
+      verify(mockRecorder).persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+      assertNull(app.getStatus().getActiveExecutors());
+      assertNull(app.getStatus().getReadyExecutors());
+      assertEquals(1L, app.getStatus().getMaxExecutorId());
+
+      // Once cleared, nothing is written again while the executors are unchanged
+      clearInvocations(mockRecorder);
+      step.reconcile(mockContext, mockRecorder);
+      verify(mockRecorder, never())
+          .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+    } finally {
+      setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, true);
+    }
+  }
+
+  @Test
+  void writesNothingWithoutDynamicAllocationWhenTheCountsAreDisabled() {
+    app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "false");
+    setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, false);
+    try {
+      when(mockContext.getExecutorsForApplication())
+          .thenReturn(Set.of(readyExecutorPod("app-exec-1", "1")));
+
+      step.reconcile(mockContext, mockRecorder);
+
+      verify(mockRecorder, never())
+          .persistStatus(any(SparkAppContext.class), any(ApplicationStatus.class));
+      assertNull(app.getStatus().getActiveExecutors());
+    } finally {
+      setConfigKey(SparkOperatorConf.EXECUTOR_COUNTS_ENABLED, true);
+    }
+  }
+
+  @Test
   void recordsOnlyTheExecutorCountsWithoutDynamicAllocation() {
     app.getSpec().getSparkConf().put("spark.dynamicAllocation.enabled", "false");
     when(mockContext.getExecutorsForApplication())

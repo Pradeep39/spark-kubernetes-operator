@@ -351,6 +351,19 @@ start over with the next attempt and when the application is suspended, like `st
 They are computed from the same executor pods in the same reconciliation, so they add no requests to
 the API server, and the status is written only when one of them or an executor state changed.
 
+`status.activeExecutors` and `status.readyExecutors` are recorded unless
+`spark.kubernetes.operator.reconciler.executorCountsEnabled` is turned off (it is on by default).
+Turning it off stops the status writes which the counts cause, e.g. if they load the API server and
+etcd more than a cluster can take, and clears the counts recorded before. `status.maxExecutorId` and
+`status.executorState` are not affected. Like `executorStateEnabled`, it can be overridden through
+dynamic configuration, or set in the Helm chart values:
+
+```yaml
+operatorConfiguration:
+  spark-operator.properties: |+
+    spark.kubernetes.operator.reconciler.executorCountsEnabled=false
+```
+
 An executor state also changes when an executor completes or fails, while the counts and
 `maxExecutorId` change only when an executor is added, becomes ready or is removed, and every
 executor state adds to each write. A scheduler which reads the counts does not need the executor
@@ -398,6 +411,8 @@ To keep the load low:
   only `activeExecutors`, `readyExecutors` and `maxExecutorId`.
 - When the executor states are on, lower `maxTrackedExecutorPerApp` to the number of executors a
   consumer needs, since the map is part of every write. `activeExecutors` stays exact beyond it.
+- As a last resort, turn `executorCountsEnabled` off to stop the writes which the executor counts
+  cause. A scheduler which reads them, such as Kueue, then no longer sees them.
 - `maxLoopForPeriod` and `refreshPeriodSeconds` bound the writes of each application, together with
   every other reconciliation of it. Allowing more reconciliations per period keeps the fields closer
   to the executor pods, as described above, but also raises the most writes which many applications

@@ -222,6 +222,27 @@ public final class SparkOperatorConf {
           .build();
 
   /**
+   * Whether the operator records the number of active and ready executors of an application in
+   * {@code status.activeExecutors} and {@code status.readyExecutors}. Turning it off stops the
+   * status writes which the counts cause, and clears the counts recorded before.
+   */
+  public static final ConfigOption<Boolean> EXECUTOR_COUNTS_ENABLED =
+      ConfigOption.<Boolean>builder()
+          .key("spark.kubernetes.operator.reconciler.executorCountsEnabled")
+          .enableDynamicOverride(true)
+          .description(
+              "Whether the operator records the number of active and ready executor pods of a "
+                  + "Spark application in its status.activeExecutors and status.readyExecutors, "
+                  + "which schedulers such as Kueue use to charge an application and to tell "
+                  + "whether its executors have started. Turning it off stops the status writes "
+                  + "which the counts cause, e.g. to reduce the load on the API server and etcd, "
+                  + "and clears the counts recorded before. status.maxExecutorId and "
+                  + "status.executorState are not affected.")
+          .typeParameterClass(Boolean.class)
+          .defaultValue(true)
+          .build();
+
+  /**
    * Whether the operator records the state of each executor in {@code status.executorState}. The
    * active executor count and the highest executor ID are recorded either way, and change less
    * often, so the executor states are off by default to reduce the status writes of an
@@ -235,7 +256,8 @@ public final class SparkOperatorConf {
               "Whether the operator records the state of each executor of a Spark "
                   + "application with Dynamic Allocation in its status.executorState. Its "
                   + "status.activeExecutors, status.readyExecutors and status.maxExecutorId, "
-                  + "which schedulers such as Kueue need, are recorded either way. An "
+                  + "which schedulers such as Kueue need, are recorded either way, the counts "
+                  + "unless executorCountsEnabled is off. An "
                   + "application without Dynamic Allocation records only its "
                   + "status.activeExecutors and status.readyExecutors. The counts and the "
                   + "ID change only when an executor is added, becomes ready or is removed, "
